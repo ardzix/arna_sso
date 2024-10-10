@@ -160,12 +160,21 @@ REST_FRAMEWORK = {
 # JWT Configuration
 from datetime import timedelta
 
+
+# Load the keys
+with open('private.pem', 'r') as f:
+    private_key = f.read()
+
+
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
+    'ALGORITHM': 'RS256',  
+    'SIGNING_KEY': private_key,  
+    'VERIFYING_KEY': None, 
 }
 
 Q_CLUSTER = {

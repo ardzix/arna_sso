@@ -254,11 +254,6 @@ class MFAAwareLoginView(APIView):
         user = authenticate(request, email=email, password=password)
 
         if user is not None:
-            # Emit signal to log login asynchronously
-            user_logged_in.send(
-                sender=self.__class__, user=user, metadata={"email": user.email}
-            )
-
             if user.mfa_secret:
                 # Emit signal for MFA login attempt
                 mfa_login_attempt.send(
@@ -276,6 +271,10 @@ class MFAAwareLoginView(APIView):
             else:
                 # MFA is not enabled, return the JWT tokens
                 refresh = RefreshToken.for_user(user)
+                # Emit signal to log login asynchronously
+                user_logged_in.send(
+                    sender=self.__class__, user=user, metadata={"email": user.email}
+                )
                 return Response(
                     {
                         "refresh": str(refresh),
