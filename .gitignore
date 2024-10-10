@@ -1,0 +1,56 @@
+# Python specific
+*.py[cod]
+*.egg
+*.egg-info/
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+__pycache__/
+
+# Django specific
+*.log
+db.sqlite3
+db.sqlite3-journal
+media/
+static/
+staticfiles/
+migrations/
+
+# Ignore Django migrations
+**/migrations/
+**/migrations/*.py
+!**/migrations/__init__.py
+
+# VSCode specific
+.vscode/
+
+# MacOS specific
+.DS_Store
+
+# Pytest cache
+.pytest_cache/
+
+# Coverage reports
+htmlcov/
+.coverage
+.tox/
+.nox/
+.coverage.*
+
+# mypy
+.mypy_cache/
+
+# Bandit security scan results
+.bandit/
+
+# Celery beat schedule files
+celerybeat-schedule
+
+# Environments
+.env
+.env.*
