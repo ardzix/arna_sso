@@ -17,8 +17,10 @@ RUN apt-get update && apt-get install -y \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Use Piwheels for Raspberry Pi or other ARM-based systems
-RUN pip install --upgrade pip setuptools wheel \
+# RUN pip install --upgrade pip setuptools wheel \
     # && pip config set global.extra-index-url https://www.piwheels.org/simple
+
+RUN python3 -m venv venv & source venv/bin/activate
 
 # Copy the requirements file into the container
 COPY requirements.txt ./
