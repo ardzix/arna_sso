@@ -4,7 +4,7 @@ FROM python:3.11-slim-buster
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
-# Install system dependencies for uWSGI, Supervisor, and libffi
+# Install system dependencies for building Python libraries
 RUN apt-get update && apt-get install -y \
     build-essential \
     python3-dev \
@@ -12,21 +12,21 @@ RUN apt-get update && apt-get install -y \
     libpcre3-dev \
     libssl-dev \
     libffi-dev \
-    curl \
     supervisor \
+    curl \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Install Rust (required for cryptography and cffi)
-RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y && \
-    /bin/bash -c "source $HOME/.cargo/env"
+# Use Piwheels for Raspberry Pi or other ARM-based systems
+RUN pip install --upgrade pip setuptools wheel \
+    && pip config set global.extra-index-url https://www.piwheels.org/simple
 
 # Copy the requirements file into the container
 COPY requirements.txt ./
 
-# Install Python dependencies
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies with binary wheels
+RUN pip install --no-cache-dir --only-binary=:all: -r requirements.txt
 
-# Copy the current directory contents into the container at /usr/src/app
+# Copy the application code into the container
 COPY . .
 
 # Collect static files
