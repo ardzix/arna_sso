@@ -12,6 +12,7 @@ RUN apt-get update && apt-get install -y \
     libpcre3-dev \
     libssl-dev \
     libffi-dev \
+    curl \
     supervisor \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
