@@ -24,7 +24,7 @@ packaging==24.1
 pillow==10.3.0
 protobuf==5.27.1
 psycopg2-binary
-pulsar-client==3.5.0
+pulsar-client
 pycparser==2.22
 PyJWT==2.9.0
 pyotp==2.9.0
