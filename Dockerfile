@@ -6,9 +6,6 @@ WORKDIR /usr/src/app
 
 # Install system dependencies for building Python libraries
 RUN apt-get update && apt-get install -y \
-    libpulsar-with-dependencies \
-    gcc \
-    cmake \
     build-essential \
     python3-dev \
     libpq-dev \
