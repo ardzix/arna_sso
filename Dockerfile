@@ -14,9 +14,7 @@ RUN apt-get update && apt-get install -y \
     libffi-dev \
     supervisor \
     curl \
-    && apt-get clean && rm -rf /var/lib/apt/lists/* \
-    && curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal \
-    && /bin/bash -c "source $HOME/.cargo/env"
+    && apt-get clean && rm -rf /var/lib/apt/lists/* 
 
 # Use Piwheels for Raspberry Pi or other ARM-based systems
 # RUN pip install --upgrade pip setuptools wheel \
