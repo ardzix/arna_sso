@@ -20,8 +20,6 @@ RUN apt-get update && apt-get install -y \
 # RUN pip install --upgrade pip setuptools wheel \
     # && pip config set global.extra-index-url https://www.piwheels.org/simple
 
-RUN python3 -m venv venv & source venv/bin/activate
-
 # Copy the requirements file into the container
 COPY requirements.txt ./
 
