@@ -14,6 +14,9 @@ RUN apt-get update && apt-get install -y \
     supervisor \
     && apt-get clean && rm -rf /var/lib/apt/lists/*
 
+RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+RUN source $HOME/.cargo/env
+
 # Copy the requirements file into the container
 COPY requirements.txt ./
 

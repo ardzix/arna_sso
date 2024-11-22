@@ -25,7 +25,7 @@ SECRET_KEY = 'django-insecure-(2l$otv%c1-x#l2+r^5=j3kbu((k--d$9+!n5tc3ymujvi@o^5
 # SECURITY WARNING: don't run with debug turned on in production!
 DEBUG = True
 
-ALLOWED_HOSTS = []
+ALLOWED_HOSTS = ['*']
 
 
 # Application definition
@@ -165,6 +165,8 @@ from datetime import timedelta
 with open('private.pem', 'r') as f:
     private_key = f.read()
 
+with open('public.pem', 'r') as f:
+    public_key = f.read()
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
@@ -174,7 +176,7 @@ SIMPLE_JWT = {
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'RS256',  
     'SIGNING_KEY': private_key,  
-    'VERIFYING_KEY': None, 
+    'VERIFYING_KEY': public_key, 
 }
 
 Q_CLUSTER = {
