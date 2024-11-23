@@ -28,12 +28,15 @@ class UserManager(BaseUserManager):
 class User(AbstractBaseUser, PermissionsMixin):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     email = models.EmailField(unique=True)
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
     mfa_enabled = models.BooleanField(default=False)
     profile_data = models.JSONField(null=True, blank=True)
     mfa_secret = models.CharField(max_length=32, null=True, blank=True)
+    otp = models.CharField(max_length=6, null=True, blank=True)
+    otp_expiration = models.DateTimeField(null=True, blank=True)
+    last_otp_sent = models.DateTimeField(null=True, blank=True)  # Tracks last OTP sent time
 
     objects = UserManager()
 

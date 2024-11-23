@@ -39,6 +39,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django_extensions',
     'rest_framework',  # For REST APIs
     'django_grpc_framework',  # For gRPC APIs
     'authentication',
@@ -195,3 +196,12 @@ Q_CLUSTER = {
     'bulk': 10,
     'orm': 'default'  # Using Django ORM as the broker
 }
+
+
+EMAIL_BACKEND = 'django.core.mail.backends.smtp.EmailBackend'
+EMAIL_HOST = 'mail.arnatech.id'
+EMAIL_PORT = 587
+EMAIL_USE_TLS = True
+EMAIL_HOST_USER = 'contact@arnatech.id'  # Replace with your email
+EMAIL_HOST_PASSWORD = 'password'       # Replace with your password
+DEFAULT_FROM_EMAIL = 'contact@arnatech.id'

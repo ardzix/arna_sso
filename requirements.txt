@@ -8,6 +8,7 @@ cryptography==41.0.3
 Django==5.0.6
 django-channels==0.7.0
 django-cors-headers==4.4.0
+django-extensions==3.2.3
 django-picklefield==3.2
 django-q2==1.7.2
 djangogrpcframework==0.2.1

@@ -6,8 +6,13 @@ from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib.auth import authenticate
+from django.utils.timezone import now
 from authentication.models import User
 from authentication.serializers import UserSerializer
+from datetime import timedelta
+from .libs.utils import generate_otp
+from .signals import send_otp_email
+
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from authentication.signals import (
@@ -19,7 +24,6 @@ from authentication.signals import (
     mfa_login_attempt,
     mfa_verified,
 )
-
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]  # Allow unauthenticated users to register
@@ -353,3 +357,81 @@ class MFAVerifyView(APIView):
                 {"error": "Invalid MFA token or credentials"},
                 status=status.HTTP_404_NOT_FOUND,
             )
+
+class VerifyEmailView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_description="Verify the email with OTP.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='Email address'),
+                'otp': openapi.Schema(type=openapi.TYPE_STRING, description='6-digit OTP'),
+            },
+            required=['email', 'otp']
+        ),
+        responses={
+            200: openapi.Response(description="Email verified successfully."),
+            400: "Invalid OTP or expired OTP.",
+            404: "User not found.",
+        },
+    )
+    def post(self, request):
+        email = request.data.get("email")
+        otp = request.data.get("otp")
+
+        try:
+            user = User.objects.get(email=email)
+            if user.otp == otp and user.otp_expiration > now():
+                user.is_active = True
+                user.otp = None  # Clear OTP after successful verification
+                user.otp_expiration = None
+                user.save()
+
+                return Response({"message": "Email verified successfully."})
+            return Response({"error": "Invalid OTP or expired OTP."}, status=status.HTTP_400_BAD_REQUEST)
+
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+
+class ResendOTPView(APIView):
+    @swagger_auto_schema(
+        operation_description="Resend OTP to user's email. Can only be done 5 minutes after the last OTP was sent.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                'email': openapi.Schema(type=openapi.TYPE_STRING, description='User email'),
+            },
+            required=['email'],
+        ),
+        responses={
+            200: openapi.Response(description="OTP resent successfully."),
+            400: "Bad Request (e.g., OTP sent too recently, user already verified)",
+            404: "User not found",
+        },
+    )
+    def post(self, request):
+        # Functionality remains the same as above
+        email = request.data.get("email")
+
+        try:
+            user = User.objects.get(email=email)
+
+            if user.is_active:
+                return Response({"error": "User is already verified."}, status=status.HTTP_400_BAD_REQUEST)
+
+            if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
+                time_remaining = 5 - (now() - user.last_otp_sent).seconds // 60
+                return Response(
+                    {"error": f"Please wait {time_remaining} minutes before resending OTP."},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            send_otp_email(user.email)
+
+            return Response({"message": "OTP resent successfully."}, status=status.HTTP_200_OK)
+
+        except User.DoesNotExist:
+            return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
