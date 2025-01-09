@@ -205,3 +205,6 @@ EMAIL_USE_TLS = True
 EMAIL_HOST_USER = 'contact@arnatech.id'  # Replace with your email
 EMAIL_HOST_PASSWORD = 'password'       # Replace with your password
 DEFAULT_FROM_EMAIL = 'contact@arnatech.id'
+
+
+CORS_ORIGIN_ALLOW_ALL = True
