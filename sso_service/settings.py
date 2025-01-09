@@ -51,6 +51,7 @@ INSTALLED_APPS = [
     'oauth_provider',
     'drf_yasg',
     'django_q',
+    'corsheaders'
 ]
 
 
