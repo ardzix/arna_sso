@@ -209,4 +209,4 @@ EMAIL_HOST_PASSWORD = 'password'       # Replace with your password
 DEFAULT_FROM_EMAIL = 'contact@arnatech.id'
 
 
-CORS_ORIGIN_ALLOW_ALL = True
+CORS_ALLOW_ALL_ORIGINS = True
