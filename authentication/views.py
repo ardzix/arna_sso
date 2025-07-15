@@ -12,6 +12,12 @@ from authentication.serializers import UserSerializer
 from datetime import timedelta
 from .libs.utils import generate_otp
 from .signals import send_otp_email
+from django.contrib.auth.tokens import PasswordResetTokenGenerator
+from django.utils.encoding import force_bytes, force_str
+from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
+from django.core.mail import send_mail
+from django.conf import settings
+from authentication.serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer, ChangePasswordSerializer
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -429,12 +435,102 @@ class ResendOTPView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-            send_otp_email(user.email)
+            from django_q.tasks import async_task
+            from authentication.signals import send_otp_email as send_otp
+            async_task(send_otp, user.email)
 
             return Response({"message": "OTP resent successfully."}, status=status.HTTP_200_OK)
 
         except User.DoesNotExist:
             return Response({"error": "User not found."}, status=status.HTTP_404_NOT_FOUND)
+
+class PasswordResetRequestView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_description="Request a password reset OTP email.",
+        request_body=PasswordResetRequestSerializer,
+        responses={
+            200: openapi.Response(description="Password reset OTP sent if user exists."),
+        },
+    )
+    def post(self, request):
+        serializer = PasswordResetRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        try:
+            user = User.objects.get(email=email)
+            # Use async_task to send OTP email, matching registration flow
+            from django_q.tasks import async_task
+            from authentication.signals import send_otp_email as send_otp
+            async_task(send_otp, user.email)
+            # Audit log
+            from audit_logging.models import AuditLog
+            AuditLog.objects.create(user=user, action="password_reset_requested", metadata={"email": email})
+        except User.DoesNotExist:
+            pass  # Do not reveal if user exists
+        return Response({"message": "If the email exists, a password reset OTP has been sent."}, status=status.HTTP_200_OK)
+
+class PasswordResetConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    @swagger_auto_schema(
+        operation_description="Confirm password reset with OTP and set new password.",
+        request_body=PasswordResetConfirmSerializer,
+        responses={
+            200: openapi.Response(description="Password has been reset successfully."),
+            400: "Invalid OTP or user.",
+        },
+    )
+    def post(self, request):
+        serializer = PasswordResetConfirmSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        email = serializer.validated_data["email"]
+        otp = serializer.validated_data["otp"]
+        new_password = serializer.validated_data["new_password"]
+        try:
+            user = User.objects.get(email=email)
+            if user.otp == otp and user.otp_expiration and user.otp_expiration > now():
+                user.set_password(new_password)
+                user.otp = None
+                user.otp_expiration = None
+                user.save()
+                # Audit log
+                from audit_logging.models import AuditLog
+                AuditLog.objects.create(user=user, action="password_reset_confirmed", metadata={})
+                return Response({"message": "Password has been reset successfully."}, status=status.HTTP_200_OK)
+            return Response({"error": "Invalid OTP or expired OTP."}, status=status.HTTP_400_BAD_REQUEST)
+        except User.DoesNotExist:
+            return Response({"error": "Invalid OTP or user."}, status=status.HTTP_400_BAD_REQUEST)
+
+class ChangePasswordView(APIView):
+    permission_classes = [ ]  # Will use IsAuthenticated below
+
+    @swagger_auto_schema(
+        operation_description="Change password for authenticated user.",
+        request_body=ChangePasswordSerializer,
+        responses={
+            200: openapi.Response(description="Password changed successfully."),
+            400: "Invalid old password.",
+        },
+    )
+    def post(self, request):
+        from rest_framework.permissions import IsAuthenticated
+        self.permission_classes = [IsAuthenticated]
+        self.check_permissions(request)
+        serializer = ChangePasswordSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        user = request.user
+        old_password = serializer.validated_data["old_password"]
+        new_password = serializer.validated_data["new_password"]
+        if not user.check_password(old_password):
+            return Response({"error": "Invalid old password."}, status=status.HTTP_400_BAD_REQUEST)
+        user.set_password(new_password)
+        user.save()
+        # Audit log
+        from audit_logging.models import AuditLog
+        AuditLog.objects.create(user=user, action="password_changed", metadata={})
+        return Response({"message": "Password changed successfully."}, status=status.HTTP_200_OK)
 
 from django.shortcuts import render
 
