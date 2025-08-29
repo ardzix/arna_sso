@@ -18,6 +18,7 @@ from django.utils.http import urlsafe_base64_encode, urlsafe_base64_decode
 from django.core.mail import send_mail
 from django.conf import settings
 from authentication.serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer, ChangePasswordSerializer
+from user_profile.models import UserProfile
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -30,6 +31,8 @@ from authentication.signals import (
     mfa_login_attempt,
     mfa_verified,
 )
+from google.oauth2 import id_token
+from google.auth.transport import requests
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]  # Allow unauthenticated users to register
@@ -531,6 +534,62 @@ class ChangePasswordView(APIView):
         from audit_logging.models import AuditLog
         AuditLog.objects.create(user=user, action="password_changed", metadata={})
         return Response({"message": "Password changed successfully."}, status=status.HTTP_200_OK)
+
+class GoogleLoginView(APIView):
+    @swagger_auto_schema(
+        operation_description="Handle Google Login.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "token": openapi.Schema(
+                    type=openapi.TYPE_STRING, description="Google Token"
+                ),
+            },
+            required=["token"],
+        ),
+    )
+
+    def post(self, request, *args, **kwargs):
+        token = request.data.get("token")
+
+        if not token:
+            return Response({"error": "Missing Google token"}, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            # Verify token
+            idinfo = id_token.verify_oauth2_token(token, requests.Request())
+            email = idinfo.get("email")
+            picture = idinfo.get("picture")
+            name = idinfo.get("name")
+
+            if not email:
+                return Response({"error": "Google token invalid, email missing"}, status=status.HTTP_400_BAD_REQUEST)
+
+            # Get or create user
+            user, _ = User.objects.get_or_create(email=email, defaults={"username": email})
+
+            # Update or create UserProfile in one step
+            profile, _ = UserProfile.objects.update_or_create(
+                user=user,
+                defaults={
+                    "profile_picture": picture or "",
+                    "full_name": name or "",
+                },
+            )
+
+            # Issue JWT tokens
+            refresh = RefreshToken.for_user(user)
+            return Response(
+                {
+                    "refresh": str(refresh),
+                    "access": str(refresh.access_token),
+                    "full_name": profile.full_name,
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        except ValueError:
+            return Response({"error": "Invalid Google token"}, status=status.HTTP_400_BAD_REQUEST)
 
 from django.shortcuts import render
 
