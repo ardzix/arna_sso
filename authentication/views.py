@@ -566,7 +566,7 @@ class GoogleLoginView(APIView):
                 return Response({"error": "Google token invalid, email missing"}, status=status.HTTP_400_BAD_REQUEST)
 
             # Get or create user
-            user, _ = User.objects.get_or_create(email=email, defaults={"username": email})
+            user, _ = User.objects.get_or_create(email=email)
 
             # Update or create UserProfile in one step
             profile, _ = UserProfile.objects.update_or_create(
@@ -579,10 +579,14 @@ class GoogleLoginView(APIView):
 
             # Issue JWT tokens
             refresh = RefreshToken.for_user(user)
+            user_logged_in.send(
+                sender=self.__class__, user=user, metadata={"email": email}
+            )
             return Response(
                 {
                     "refresh": str(refresh),
                     "access": str(refresh.access_token),
+                    "email":email,
                     "full_name": profile.full_name,
                 },
                 status=status.HTTP_200_OK,
