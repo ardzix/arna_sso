@@ -47,6 +47,10 @@ def handle_token_refresh(sender, user, metadata, **kwargs):
     pass
 
 def send_otp_email(email):
+    # Skip email verification for placeholder emails (WhatsApp registrations)
+    if email.endswith('@arnatech.local'):
+        return
+    
     otp = generate_otp()
     soe(email=email, otp=otp)
     user = User.objects.get(email=email)

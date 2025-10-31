@@ -37,6 +37,9 @@ class User(AbstractBaseUser, PermissionsMixin):
     otp = models.CharField(max_length=6, null=True, blank=True)
     otp_expiration = models.DateTimeField(null=True, blank=True)
     last_otp_sent = models.DateTimeField(null=True, blank=True)  # Tracks last OTP sent time
+    phone_number = models.CharField(max_length=20, null=True, blank=True, unique=True)
+    phone_verified = models.BooleanField(default=False)
+    pending_phone = models.CharField(max_length=20, null=True, blank=True)
 
     objects = UserManager()
 

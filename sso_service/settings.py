@@ -208,5 +208,9 @@ EMAIL_HOST_USER = 'contact@arnatech.id'  # Replace with your email
 EMAIL_HOST_PASSWORD = 'password'       # Replace with your password
 DEFAULT_FROM_EMAIL = 'contact@arnatech.id'
 
-
+# WAHA WhatsApp Configuration
+WAHA_API_URL = os.getenv('WAHA_API_URL', 'https://waha.arnatech.id')
+WAHA_API_KEY = os.getenv('WAHA_API_KEY', '')
+print(WAHA_API_URL)
+print(WAHA_API_KEY)
 CORS_ALLOW_ALL_ORIGINS = True

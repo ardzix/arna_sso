@@ -29,3 +29,25 @@ class PasswordResetConfirmSerializer(serializers.Serializer):
 class ChangePasswordSerializer(serializers.Serializer):
     old_password = serializers.CharField(write_only=True)
     new_password = serializers.CharField(write_only=True)
+
+# WhatsApp OTP Serializers
+class WASendLinkOTPSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+
+class WAVerifyLinkSerializer(serializers.Serializer):
+    otp = serializers.CharField(max_length=6)
+
+class WARegisterRequestSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+class WARegisterVerifySerializer(serializers.Serializer):
+    phone = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
+
+class WASendOTPSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+
+class WAVerifyOTPSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+    otp = serializers.CharField(max_length=6)
