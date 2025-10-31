@@ -11,7 +11,7 @@ from .views import (
     ResendOTPView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
-    ChangePasswordView,
+    ChangePasswordView, GoogleLoginView,
 )
 from .wa_views import (
     WASendLinkOTPView,
@@ -29,6 +29,7 @@ urlpatterns = [
     path('token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('mfa/set/', SetMFAView.as_view(), name='set_mfa'),
     path('login/', MFAAwareLoginView.as_view(), name='login'),
+    path('google-login/', GoogleLoginView.as_view(), name='google-login'),
     path('mfa/verify/', MFAVerifyView.as_view(), name='mfa_verify'),
     path("verify-email/", VerifyEmailView.as_view(), name="verify_email"),
     path("resend-email-otp/", ResendOTPView.as_view(), name="resend_email_otp"),
