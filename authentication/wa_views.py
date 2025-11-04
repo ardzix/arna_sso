@@ -305,7 +305,7 @@ class WASendOTPView(APIView):
             )
         
         try:
-            user = User.objects.get(phone_number=phone, phone_verified=True)
+            user = User.objects.get(phone_number=phone)
             
             # Check cooldown
             if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
