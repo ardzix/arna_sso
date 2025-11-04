@@ -371,7 +371,7 @@ class WAVerifyOTPView(APIView):
             )
         
         try:
-            user = User.objects.get(phone_number=phone, phone_verified=True)
+            user = User.objects.get(phone_number=phone)
         except User.DoesNotExist:
             return Response(
                 {"error": "Invalid credentials"},
@@ -381,6 +381,7 @@ class WAVerifyOTPView(APIView):
         if user.otp == otp and user.otp_expiration and user.otp_expiration > now():
             user.otp = None
             user.otp_expiration = None
+            user.phone_verified = True
             user.save()
             
             # Issue JWT tokens
