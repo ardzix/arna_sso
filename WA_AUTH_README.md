@@ -5,10 +5,23 @@ Fitur autentikasi via WhatsApp OTP menggunakan WAHA (WhatsApp HTTP API) terinteg
 ## Konfigurasi
 
 ### Environment Variables
+
+#### WAHA Configuration (untuk Push Method)
 ```bash
 WAHA_API_URL=https://waha.arnatech.id  # Default
 WAHA_API_KEY=<your-api-key>
 ```
+
+#### N8N Webhook Configuration (untuk Reverse Method)
+```bash
+N8N_WEBHOOK_URL=http://n8d.arnatech.id/webhook/  # Default
+N8N_WEBHOOK_ID=<your-webhook-uuid>  # UUID webhook ID dari n8n
+N8N_WEBHOOK_AUTH_TOKEN=<your-auth-token>  # Token autentikasi untuk n8n webhook
+```
+
+**Catatan:** 
+- Push method: Mengirim OTP langsung via WAHA API (user menerima pesan otomatis)
+- Reverse method: Mengirim data OTP ke n8n webhook (user harus initiate chat terlebih dahulu)
 
 ### Database Schema
 Field baru di `User` model:
@@ -18,7 +31,26 @@ Field baru di `User` model:
 
 ## Endpoints
 
+### Metode Autentikasi
+
+Sistem mendukung **2 metode** untuk WhatsApp OTP:
+
+1. **Push Method** (Original): OTP dikirim langsung via WAHA API
+   - Endpoint: `/api/auth/wa/*`
+   - User menerima pesan WhatsApp otomatis
+   - Memerlukan: `WAHA_API_URL` dan `WAHA_API_KEY`
+
+2. **Reverse Method** (Baru): OTP data dikirim ke n8n webhook
+   - Endpoint: `/api/auth/wa/reverse/*`
+   - User harus initiate chat terlebih dahulu
+   - n8n mencocokan OTP saat user chat
+   - Memerlukan: `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_ID`, dan `N8N_WEBHOOK_AUTH_TOKEN`
+
+---
+
 ### 1. Link WhatsApp ke Akun Existing (Authenticated)
+
+#### Push Method
 
 #### Send OTP untuk Link
 ```
@@ -54,7 +86,31 @@ Response 200:
 }
 ```
 
+#### Reverse Method
+```
+POST /api/auth/wa/reverse/send-link-otp/
+Authorization: Bearer <access_token>
+
+Body:
+{
+  "phone": "0858 111 444 21"
+}
+
+Response 200:
+{
+  "message": "OTP data sent to n8n. Please initiate chat via WhatsApp link.",
+  "phone": "6285811144421",
+  "method": "reverse"
+}
+```
+
+**Catatan:** Verify endpoint sama untuk kedua metode: `POST /api/auth/wa/verify-link/`
+
+---
+
 ### 2. Registrasi via WhatsApp (Public)
+
+#### Push Method
 
 #### Request Registrasi
 ```
@@ -95,7 +151,31 @@ Response 200:
 }
 ```
 
+#### Reverse Method
+```
+POST /api/auth/wa/reverse/register-request/
+
+Body:
+{
+  "phone": "0858-111-444-21",
+  "email": "user@example.com"  // Optional
+}
+
+Response 200:
+{
+  "message": "OTP data sent to n8n. Please initiate chat via WhatsApp link.",
+  "phone": "6285811144421",
+  "method": "reverse"
+}
+```
+
+**Catatan:** Verify endpoint sama untuk kedua metode: `POST /api/auth/wa/register-verify/`
+
+---
+
 ### 3. Login via WhatsApp (Public)
+
+#### Push Method
 
 #### Send OTP untuk Login
 ```
@@ -130,6 +210,44 @@ Response 200:
   "access": "eyJhbGciOiJSUzI1NiIsInR5cCI6IkpXVCJ9..."
 }
 ```
+
+#### Reverse Method
+```
+POST /api/auth/wa/reverse/send-otp/
+
+Body:
+{
+  "phone": "0858 111 444 21"
+}
+
+Response 200:
+{
+  "message": "If the phone number is registered, OTP data has been sent to n8n."
+}
+```
+
+**Catatan:** Verify endpoint sama untuk kedua metode: `POST /api/auth/wa/verify-otp/`
+
+---
+
+## Perbedaan Push vs Reverse Method
+
+### Push Method (Original)
+- ✅ OTP dikirim langsung via WAHA API
+- ✅ User menerima pesan WhatsApp otomatis
+- ⚠️ Potensi nomor/IP terblokir jika terlalu banyak push message
+- 🔧 Memerlukan: WAHA API configuration
+
+### Reverse Method (Baru)
+- ✅ Mengurangi risiko nomor/IP terblokir
+- ✅ User initiate chat (lebih natural)
+- ✅ Lebih aman (tidak ada push message yang terdeteksi sebagai spam)
+- 🔧 Memerlukan: n8n webhook configuration
+- 📋 Flow: Data OTP dikirim ke n8n → User chat ke WAHA via n8n → n8n mencocokan OTP
+
+**Rekomendasi:** Gunakan Reverse Method untuk production untuk menghindari risiko blocking.
+
+---
 
 ## Normalisasi Nomor HP
 
@@ -188,13 +306,24 @@ Contoh input yang valid:
 3. POST `/api/auth/wa/verify-otp/` dengan OTP
 4. Dapat JWT token
 
+### Skenario 5: Login via WhatsApp (Reverse Method)
+1. POST `/api/auth/wa/reverse/send-otp/` dengan nomor HP
+2. Sistem kirim data OTP ke n8n webhook
+3. FE tampilkan wa.me link untuk user
+4. User initiate chat ke WAHA via n8n
+5. n8n mencocokan nomor HP dan OTP dari database
+6. User dapat OTP dari n8n
+7. POST `/api/auth/wa/verify-otp/` dengan OTP
+8. Dapat JWT token
+
 ## Integrasi dengan Flow Existing
 
 ### Multi-Channel Authentication
 User sekarang bisa login dengan:
 1. **Email + Password** (existing): `POST /api/auth/login/`
-2. **WhatsApp OTP** (new): `POST /api/auth/wa/send-otp/` → `verify-otp/`
-3. **Google OAuth** (planned): (belum diimplementasi)
+2. **WhatsApp OTP Push** (new): `POST /api/auth/wa/send-otp/` → `verify-otp/`
+3. **WhatsApp OTP Reverse** (new): `POST /api/auth/wa/reverse/send-otp/` → `verify-otp/`
+4. **Google OAuth** (planned): (belum diimplementasi)
 
 ### Token Management
 - Semua metode autentikasi menggunakan JWT yang sama (RS256)
@@ -203,9 +332,10 @@ User sekarang bisa login dengan:
 
 ## Testing
 
-### Dengan WAHA Aktif
+### Push Method (WAHA)
 ```bash
 # Set environment
+export WAHA_API_URL="https://waha.arnatech.id"
 export WAHA_API_KEY="your-api-key"
 
 # Test register
@@ -219,10 +349,30 @@ curl -X POST http://localhost:8000/api/auth/wa/register-verify/ \
   -d '{"phone": "6285811144211", "otp": "123456"}'
 ```
 
-### Tanpa WAHA (Development)
-Jika `WAHA_API_KEY` kosong, `send_otp_whatsapp` akan raise error. Untuk testing lokal:
-1. Set mock/dummy WAHA_API_KEY
-2. Atau check OTP langsung di database/log
+### Reverse Method (n8n)
+```bash
+# Set environment
+export N8N_WEBHOOK_URL="http://n8d.arnatech.id/webhook/"
+export N8N_WEBHOOK_ID="your-webhook-uuid"
+export N8N_WEBHOOK_AUTH_TOKEN="your-auth-token"
+
+# Test register
+curl -X POST http://localhost:8000/api/auth/wa/reverse/register-request/ \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "0858111444211"}'
+
+# Data OTP akan dikirim ke n8n webhook
+# User harus initiate chat via wa.me link
+# n8n akan mencocokan OTP saat user chat
+# Lalu verify seperti biasa
+curl -X POST http://localhost:8000/api/auth/wa/register-verify/ \
+  -H "Content-Type: application/json" \
+  -d '{"phone": "6285811144211", "otp": "123456"}'
+```
+
+### Development Testing
+- **Push Method:** Jika `WAHA_API_KEY` kosong, akan raise error. Set mock/dummy key atau check OTP di database/log
+- **Reverse Method:** Jika `N8N_WEBHOOK_ID` kosong, akan raise error. Pastikan n8n webhook sudah dikonfigurasi dengan benar
 
 ## Migrasi
 
@@ -238,10 +388,18 @@ python manage.py migrate
 
 ## Troubleshooting
 
-### OTP tidak terkirim
+### OTP tidak terkirim (Push Method)
 - Cek `WAHA_API_URL` dan `WAHA_API_KEY` sudah benar
 - Cek `django-q` cluster berjalan: `python manage.py qcluster`
 - Cek log WAHA API response
+- Pastikan WAHA service aktif dan accessible
+
+### OTP data tidak terkirim ke n8n (Reverse Method)
+- Cek `N8N_WEBHOOK_URL`, `N8N_WEBHOOK_ID`, dan `N8N_WEBHOOK_AUTH_TOKEN` sudah benar
+- Cek `django-q` cluster berjalan: `python manage.py qcluster`
+- Cek log n8n webhook response
+- Pastikan n8n webhook aktif dan accessible
+- Verify webhook URL format: `http://n8d.arnatech.id/webhook/{webhook_id}`
 
 ### Nomor tidak valid
 - Pastikan nomor HP Indonesia (diawali 0 atau 62)
@@ -250,4 +408,8 @@ python manage.py migrate
 ### Cooldown error
 - User harus tunggu 5 menit sejak OTP terakhir dikirim
 - Atau reset `last_otp_sent` secara manual di database untuk testing
+
+### Error saat Swagger schema generation
+- Error "AnonymousUser is not a valid UUID" sudah diperbaiki
+- ViewSet sekarang handle AnonymousUser dengan proper check
 
