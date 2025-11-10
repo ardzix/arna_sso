@@ -20,6 +20,9 @@ from .wa_views import (
     WARegisterVerifyView,
     WASendOTPView,
     WAVerifyOTPView,
+    WAReverseSendLinkOTPView,
+    WAReverseRegisterRequestView,
+    WAReverseSendOTPView,
 )
 
 urlpatterns = [
@@ -37,11 +40,17 @@ urlpatterns = [
     path("password-reset-confirm/", PasswordResetConfirmView.as_view(), name="password_reset_confirm"),
     path("change-password/", ChangePasswordView.as_view(), name="change_password"),
     
-    # WhatsApp OTP endpoints
+    # WhatsApp OTP endpoints (push via WAHA)
     path('wa/send-link-otp/', WASendLinkOTPView.as_view(), name='wa_send_link_otp'),
     path('wa/verify-link/', WAVerifyLinkView.as_view(), name='wa_verify_link'),
     path('wa/register-request/', WARegisterRequestView.as_view(), name='wa_register_request'),
     path('wa/register-verify/', WARegisterVerifyView.as_view(), name='wa_register_verify'),
     path('wa/send-otp/', WASendOTPView.as_view(), name='wa_send_otp'),
     path('wa/verify-otp/', WAVerifyOTPView.as_view(), name='wa_verify_otp'),
+    
+    # WhatsApp Reverse OTP endpoints (n8n webhook - user must initiate chat)
+    path('wa/reverse/send-link-otp/', WAReverseSendLinkOTPView.as_view(), name='wa_reverse_send_link_otp'),
+    path('wa/reverse/register-request/', WAReverseRegisterRequestView.as_view(), name='wa_reverse_register_request'),
+    path('wa/reverse/send-otp/', WAReverseSendOTPView.as_view(), name='wa_reverse_send_otp'),
+    # Note: verify endpoints use the same as regular WA (WAVerifyLinkView, WARegisterVerifyView, WAVerifyOTPView)
 ]

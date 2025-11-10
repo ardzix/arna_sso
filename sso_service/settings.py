@@ -211,4 +211,10 @@ DEFAULT_FROM_EMAIL = 'contact@arnatech.id'
 # WAHA WhatsApp Configuration
 WAHA_API_URL = os.getenv('WAHA_API_URL', 'https://waha.arnatech.id')
 WAHA_API_KEY = os.getenv('WAHA_API_KEY', '')
+
+# N8N Webhook Configuration for Reverse WA OTP
+N8N_WEBHOOK_URL = os.getenv('N8N_WEBHOOK_URL', 'http://n8d.arnatech.id/webhook/')
+N8N_WEBHOOK_ID = os.getenv('N8N_WEBHOOK_ID', '')  # UUID webhook ID
+N8N_WEBHOOK_AUTH_TOKEN = os.getenv('N8N_WEBHOOK_AUTH_TOKEN', '')
+
 CORS_ALLOW_ALL_ORIGINS = True

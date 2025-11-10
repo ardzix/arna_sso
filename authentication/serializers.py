@@ -51,3 +51,14 @@ class WASendOTPSerializer(serializers.Serializer):
 class WAVerifyOTPSerializer(serializers.Serializer):
     phone = serializers.CharField()
     otp = serializers.CharField(max_length=6)
+
+# Reverse WA OTP Serializers (n8n webhook method)
+class WAReverseSendLinkOTPSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+
+class WAReverseRegisterRequestSerializer(serializers.Serializer):
+    phone = serializers.CharField()
+    email = serializers.EmailField(required=False, allow_blank=True)
+
+class WAReverseSendOTPSerializer(serializers.Serializer):
+    phone = serializers.CharField()
