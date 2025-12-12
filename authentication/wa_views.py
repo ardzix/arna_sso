@@ -383,8 +383,11 @@ class WAVerifyOTPView(APIView):
             )
         
         if user.otp == otp and user.otp_expiration and user.otp_expiration > now():
+            # Clear OTP
             user.otp = None
             user.otp_expiration = None
+            # Activate user and verify phone (OTP verification means phone is valid)
+            user.is_active = True
             user.phone_verified = True
             user.save()
             
@@ -555,16 +558,17 @@ class WAReverseRegisterRequestView(APIView):
 
 class WAReverseSendOTPView(APIView):
     """
-    Send OTP data to n8n webhook for login using reverse WA OTP authentication.
+    Send OTP data to n8n webhook for login/register using reverse WA OTP authentication.
     User must initiate chat to receive OTP.
+    If phone number is not registered, automatically register the user.
     """
     permission_classes = [AllowAny]
 
     @swagger_auto_schema(
         request_body=WAReverseSendOTPSerializer,
-        operation_description="Send OTP data to n8n webhook for reverse WA login. User must initiate chat.",
+        operation_description="Send OTP data to n8n webhook for reverse WA login/register. User must initiate chat. Auto-registers if phone not found.",
         responses={
-            200: openapi.Response(description="OTP data sent to n8n if phone is registered"),
+            200: openapi.Response(description="OTP data sent to n8n webhook"),
         },
     )
     def post(self, request):
@@ -575,36 +579,49 @@ class WAReverseSendOTPView(APIView):
         phone = normalize_phone_number(phone_raw)
         
         if not phone:
-            # Generic response for security
             return Response(
-                {"message": "If the phone number is registered, OTP data has been sent to n8n."},
+                {"error": "Invalid phone number format"},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        # Try to get user by phone number (regardless of phone_verified status)
+        user = User.objects.filter(phone_number=phone).first()
+        
+        # If user doesn't exist, auto-register
+        if not user:
+            # Generate placeholder email
+            email = f"wa_{phone}@arnatech.local"
+            
+            # Check if email already exists (edge case)
+            if User.objects.filter(email=email).exists():
+                # If email exists, try with phone in email
+                email = f"wa_{phone}_{now().timestamp()}@arnatech.local"
+            
+            # Create new user (inactive, phone_verified=False)
+            user = User.objects.create_user(email=email, password=None)
+            user.is_active = False
+            user.phone_number = phone
+            user.phone_verified = False
+        
+        # Check cooldown
+        if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
+            return Response(
+                {"message": "OTP data has been sent to n8n. Please wait before requesting again."},
                 status=status.HTTP_200_OK
             )
         
-        try:
-            user = User.objects.get(phone_number=phone, phone_verified=True)
-            
-            # Check cooldown
-            if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
-                return Response(
-                    {"message": "If the phone number is registered, OTP data has been sent to n8n."},
-                    status=status.HTTP_200_OK
-                )
-            
-            # Generate and send OTP
-            otp = generate_otp()
-            user.otp = otp
-            user.otp_expiration = now() + timedelta(minutes=10)
-            user.last_otp_sent = now()
-            user.save()
-            
-            # Send OTP data to n8n webhook (reverse method - user must initiate chat)
-            async_task(send_otp_to_n8n, phone, otp)
-        except User.DoesNotExist:
-            pass  # Don't reveal if phone exists
+        # Generate and send OTP (regardless of phone_verified status)
+        otp = generate_otp()
+        user.otp = otp
+        user.otp_expiration = now() + timedelta(minutes=10)
+        user.last_otp_sent = now()
+        user.save()
+        
+        # Send OTP data to n8n webhook (reverse method - user must initiate chat)
+        async_task(send_otp_to_n8n, phone, otp)
         
         return Response(
-            {"message": "If the phone number is registered, OTP data has been sent to n8n."},
+            {"message": "OTP data has been sent to n8n. Please initiate chat via WhatsApp link."},
             status=status.HTTP_200_OK
         )
 
