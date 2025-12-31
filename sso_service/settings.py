@@ -155,6 +155,7 @@ SWAGGER_SETTINGS = {
             'in': 'header'
         }
     },
+    'persistAuthorization': True,
 }
 
 
@@ -172,11 +173,14 @@ from datetime import timedelta
 
 
 # Load the keys
-with open('private.pem', 'r') as f:
-    private_key = f.read()
-
-with open('public.pem', 'r') as f:
-    public_key = f.read()
+try:
+    with open('private.pem', 'r') as f:
+        private_key = f.read()
+    with open('public.pem', 'r') as f:
+        public_key = f.read()
+except FileNotFoundError:
+    private_key = 'BUILD_KEY'
+    public_key = 'BUILD_KEY'
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
