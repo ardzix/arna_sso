@@ -69,7 +69,8 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
     
     def perform_create(self, serializer):
         # Permission logic is now handled by CanManageOrganizationMembers
-        serializer.save()
+        # Ensure new memberships do not automatically become the active session
+        serializer.save(is_session_active=False)
 
     @action(detail=True, methods=['post'], url_path='switch-session')
     def switch_session(self, request, pk=None):

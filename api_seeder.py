@@ -54,7 +54,7 @@ def get_my_id(token):
 def create_org(token, name):
     print(f"🔹 Creating Org '{name}'...")
     headers = {"Authorization": f"Bearer {token}"}
-    data = {"name": name}
+    data = {"name": name, "package_type": "Basic"}
     resp = requests.post(f"{BASE_URL}/api/org/organizations/", json=data, headers=headers)
     
     if resp.status_code == 201:

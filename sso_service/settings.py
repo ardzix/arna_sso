@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'corsheaders',
     'rest_framework',  # For REST APIs
-    'django_grpc_framework',  # For gRPC APIs
+    # 'django_grpc_framework',  # For gRPC APIs
     'authentication',
     'authorization',
     'iam',
@@ -53,6 +53,13 @@ INSTALLED_APPS = [
     'drf_yasg',
     'django_q',
 ]
+
+# Optional: Add gRPC framework only if installed
+try:
+    import grpc
+    INSTALLED_APPS.append('django_grpc_framework')
+except ImportError:
+    pass
 
 
 MIDDLEWARE = [

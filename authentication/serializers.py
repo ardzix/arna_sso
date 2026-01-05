@@ -7,7 +7,7 @@ from iam.models import Permission
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'password']  # Ensure both email and password are included
+        fields = ['id', 'email', 'password']  # Ensure both email and password are included
         extra_kwargs = {
             'password': {'write_only': True}  # Ensure password is write-only
         }
@@ -27,9 +27,11 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         token = super().get_token(user)
 
         # 1. Find the Active Session
-        try:
-            member = OrganizationMember.objects.get(user=user, is_session_active=True)
-            
+        # 1. Find the Active Session
+        # Use filter().first() to avoid MultipleObjectsReturned error
+        member = OrganizationMember.objects.filter(user=user, is_session_active=True).first()
+        
+        if member:
             # 2. Add Organization ID
             token['org_id'] = str(member.organization.id)
             
@@ -52,7 +54,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
             
             token['permissions'] = list(permissions)
             
-        except OrganizationMember.DoesNotExist:
+        else:
             # Handle user with no active session (maybe new user or just created)
             token['org_id'] = None
             token['roles'] = []

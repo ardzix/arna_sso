@@ -1,9 +1,13 @@
 version: '3.8'
 
 services:
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
   web:
     build: .
-    command: python manage.py runserver 0.0.0.0:8001
     volumes:
       - .:/usr/src/app
     ports:
@@ -12,3 +16,6 @@ services:
       - .env
     environment:
       - DJANGO_SETTINGS_MODULE=sso_service.settings
+      - REDIS_URL=redis://redis:6379/1
+    depends_on:
+      - redis

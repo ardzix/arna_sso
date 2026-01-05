@@ -51,3 +51,4 @@ celerybeat-schedule
 
 # Keys
 *.pem
+supervisord.pid
