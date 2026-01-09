@@ -8,9 +8,12 @@ class OrganizationSerializer(serializers.ModelSerializer):
         read_only_fields = ['id', 'created_at', 'updated_at', 'owner'] # Owner removed from Read Only
 
 class OrganizationMemberSerializer(serializers.ModelSerializer):
+    user_name = serializers.ReadOnlyField(source='user.email')
+    organization_name = serializers.ReadOnlyField(source='organization.name')
+
     class Meta:
         model = OrganizationMember
-        fields = ['id', 'user', 'organization', 'joined_at', 'is_session_active']
+        fields = ['id', 'user', 'user_name', 'organization', 'organization_name', 'joined_at', 'is_session_active']
         read_only_fields = ['id', 'joined_at', 'is_session_active'] # is_session_active managed via switch-session action usually, but good to see it.
 
     def __init__(self, *args, **kwargs):

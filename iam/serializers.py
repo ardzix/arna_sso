@@ -14,9 +14,11 @@ class RoleSerializer(serializers.ModelSerializer):
         child=serializers.UUIDField(), write_only=True, required=False
     )
 
+    organization_name = serializers.ReadOnlyField(source='organization.name')
+
     class Meta:
         model = Role
-        fields = ['id', 'name', 'description', 'organization', 'permissions', 'permission_ids']
+        fields = ['id', 'name', 'description', 'organization', 'organization_name', 'permissions', 'permission_ids']
         # organization removed from read_only_fields to allow custom role creation
         read_only_fields = [] 
 
@@ -47,9 +49,12 @@ class RoleSerializer(serializers.ModelSerializer):
 class UserRoleSerializer(serializers.ModelSerializer):
     role_detail = RoleSerializer(source='role', read_only=True)
 
+    user_name = serializers.ReadOnlyField(source='organization_member.user.email')
+    organization_name = serializers.ReadOnlyField(source='organization_member.organization.name')
+
     class Meta:
         model = UserRole
-        fields = ['id', 'organization_member', 'role', 'role_detail', 'assigned_at']
+        fields = ['id', 'organization_member', 'user_name', 'organization_name', 'role', 'role_detail', 'assigned_at']
         read_only_fields = ['id', 'assigned_at', 'role_detail']
 
     def validate(self, data):
@@ -78,9 +83,12 @@ class UserPermissionSerializer(serializers.ModelSerializer):
         child=serializers.UUIDField(), write_only=True, required=False
     )
 
+    user_name = serializers.ReadOnlyField(source='organization_member.user.email')
+    organization_name = serializers.ReadOnlyField(source='organization_member.organization.name')
+
     class Meta:
         model = UserPermission
-        fields = ['id', 'organization_member', 'permissions', 'permission_ids', 'assigned_at']
+        fields = ['id', 'organization_member', 'user_name', 'organization_name', 'permissions', 'permission_ids', 'assigned_at']
         read_only_fields = ['id', 'assigned_at']
     
     def __init__(self, *args, **kwargs):

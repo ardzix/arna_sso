@@ -163,6 +163,7 @@ SWAGGER_SETTINGS = {
         }
     },
     'persistAuthorization': True,
+    'DEFAULT_INFO': 'sso_service.swagger_info.api_info',
 }
 
 

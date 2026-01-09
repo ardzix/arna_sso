@@ -33,7 +33,9 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
         
         if member:
             # 2. Add Organization ID
+            member.organization.refresh_from_db() # Ensure we have latest data
             token['org_id'] = str(member.organization.id)
+            token['org_name'] = member.organization.name
             
             # 3. Add Roles
             # UserRole links OrganizationMember to Role
@@ -54,11 +56,19 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
             
             token['permissions'] = list(permissions)
             
+            # 5. Add Owner Flag
+            # Check if this user is the owner of the organization
+            try:
+                token['is_owner'] = (member.organization.owner_id == user.id)
+            except AttributeError:
+                token['is_owner'] = False
+            
         else:
             # Handle user with no active session (maybe new user or just created)
             token['org_id'] = None
             token['roles'] = []
             token['permissions'] = []
+            token['is_owner'] = False
 
         return token
 

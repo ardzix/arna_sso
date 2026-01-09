@@ -92,8 +92,19 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
         # 3. Activate this session
         membership.is_session_active = True
         membership.save()
+
+        # 4. Generate New Tokens
+        # We MUST use our custom serializer to ensuring all claims (org_id, roles) are included.
+        from authentication.serializers import MyTokenObtainPairSerializer
         
-        return Response({"status": "Session switched to " + membership.organization.name})
+        # get_token() returns a RefreshToken object with our custom claims
+        refresh = MyTokenObtainPairSerializer.get_token(request.user)
+
+        return Response({
+            "status": "Session switched to " + membership.organization.name,
+            "access": str(refresh.access_token),
+            "refresh": str(refresh)
+        })
 
     @action(detail=False, methods=['get'], url_path='mine')
     def my_memberships(self, request):
