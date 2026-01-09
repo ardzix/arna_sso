@@ -1,0 +1,2522 @@
+{
+    "swagger": "2.0",
+    "info": {
+        "title": "SSO Service API (Generated)",
+        "description": "API documentation for the SSO service",
+        "contact": {
+            "email": "contact@arnatech.id"
+        },
+        "license": {
+            "name": "BSD License"
+        },
+        "version": "v1"
+    },
+    "basePath": "/api",
+    "consumes": [
+        "application/json"
+    ],
+    "produces": [
+        "application/json"
+    ],
+    "securityDefinitions": {
+        "Bearer": {
+            "type": "apiKey",
+            "name": "Authorization",
+            "in": "header"
+        }
+    },
+    "security": [
+        {
+            "Bearer": []
+        }
+    ],
+    "paths": {
+        "/auth/change-password/": {
+            "post": {
+                "operationId": "auth_change-password_create",
+                "description": "Change password for authenticated user.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/ChangePassword"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Password changed successfully."
+                    },
+                    "400": {
+                        "description": "Invalid old password."
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/google-login/": {
+            "post": {
+                "operationId": "auth_google-login_create",
+                "description": "Handle Google Login.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "token"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "token": {
+                                    "description": "Google Token",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "required": [
+                                "token"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "token": {
+                                    "description": "Google Token",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/login/": {
+            "post": {
+                "operationId": "auth_login_create",
+                "description": "Handle MFA-aware login. Prompt for MFA if enabled.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "email",
+                                "password"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "description": "User email",
+                                    "type": "string"
+                                },
+                                "password": {
+                                    "description": "User password",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "MFA required or JWT tokens returned",
+                        "examples": {
+                            "application/json": {
+                                "mfa_required": true,
+                                "message": "MFA is required. Please provide your MFA token."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid credentials"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/logout/": {
+            "post": {
+                "operationId": "auth_logout_create",
+                "description": "Logout user by blacklisting the refresh token.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "refresh"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "refresh": {
+                                    "description": "Refresh token",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "205": {
+                        "description": "Logout successful"
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/me/": {
+            "get": {
+                "operationId": "auth_me_list",
+                "description": "Get details of the currently authenticated user.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/User"
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "patch": {
+                "operationId": "auth_me_partial_update",
+                "description": "Update details of the currently authenticated user.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/User"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/User"
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/mfa/set/": {
+            "post": {
+                "operationId": "auth_mfa_set_create",
+                "description": "Set up MFA for the user and return the MFA secret and QR code URL.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "MFA secret and QR code URL returned",
+                        "examples": {
+                            "application/json": {
+                                "mfa_secret": "SECRET_CODE",
+                                "qr_code_url": "otpauth://totp/YourApp:testuser@example.com?secret=SECRET_CODE&issuer=YourApp"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/mfa/verify/": {
+            "post": {
+                "operationId": "auth_mfa_verify_create",
+                "description": "Verify MFA token and return JWT tokens if successful.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "email",
+                                "mfa_token"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "description": "User email",
+                                    "type": "string"
+                                },
+                                "mfa_token": {
+                                    "description": "MFA token",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "MFA token verified, JWT tokens returned",
+                        "examples": {
+                            "application/json": {
+                                "refresh": "eyJhbGciOiJIUzI1...",
+                                "access": "eyJhbGciOiJIUzI1..."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid MFA token or credentials"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/password-reset-confirm/": {
+            "post": {
+                "operationId": "auth_password-reset-confirm_create",
+                "description": "Confirm password reset with OTP and set new password.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/PasswordResetConfirm"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Password has been reset successfully."
+                    },
+                    "400": {
+                        "description": "Invalid OTP or user."
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/password-reset-request/": {
+            "post": {
+                "operationId": "auth_password-reset-request_create",
+                "description": "Request a password reset OTP email.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/PasswordResetRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Password reset OTP sent if user exists."
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/register/": {
+            "post": {
+                "operationId": "auth_register_create",
+                "description": "Register a new user.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/User"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "User registered successfully",
+                        "examples": {
+                            "application/json": {
+                                "refresh": "eyJhbGciOiJIUzI1...",
+                                "access": "eyJhbGciOiJIUzI1..."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Bad Request"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/resend-email-otp/": {
+            "post": {
+                "operationId": "auth_resend-email-otp_create",
+                "description": "Resend OTP to user's email. Can only be done 5 minutes after the last OTP was sent.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "email"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "description": "User email",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP resent successfully."
+                    },
+                    "400": {
+                        "description": "Bad Request (e.g., OTP sent too recently, user already verified)"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/token/refresh/": {
+            "post": {
+                "operationId": "auth_token_refresh_create",
+                "description": "Refresh JWT access token using a refresh token.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "refresh"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "refresh": {
+                                    "description": "The refresh token to use",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "New access token",
+                        "examples": {
+                            "application/json": {
+                                "access": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid token or token expired"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/token/verify/": {
+            "post": {
+                "operationId": "auth_token_verify_create",
+                "description": "Takes a token and indicates if it is valid.  This view provides no\ninformation about a token's fitness for a particular use.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/TokenVerify"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/TokenVerify"
+                        }
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/verify-email/": {
+            "post": {
+                "operationId": "auth_verify-email_create",
+                "description": "Verify the email with OTP.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "email",
+                                "otp"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "email": {
+                                    "description": "Email address",
+                                    "type": "string"
+                                },
+                                "otp": {
+                                    "description": "6-digit OTP",
+                                    "type": "string"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Email verified successfully."
+                    },
+                    "400": {
+                        "description": "Invalid OTP or expired OTP."
+                    },
+                    "404": {
+                        "description": "User not found."
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/register-request/": {
+            "post": {
+                "operationId": "auth_wa_register-request_create",
+                "description": "Register new user with WhatsApp. Send OTP for verification.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WARegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP sent to WhatsApp"
+                    },
+                    "400": {
+                        "description": "Invalid data or phone already in use"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/register-verify/": {
+            "post": {
+                "operationId": "auth_wa_register-verify_create",
+                "description": "Verify OTP to activate account and receive JWT tokens.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WARegisterVerify"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Account activated, JWT tokens returned",
+                        "examples": {
+                            "application/json": {
+                                "message": "Account activated successfully",
+                                "refresh": "eyJhbGciOiJIUzI1...",
+                                "access": "eyJhbGciOiJIUzI1..."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid or expired OTP"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/reverse/register-request/": {
+            "post": {
+                "operationId": "auth_wa_reverse_register-request_create",
+                "description": "Register new user with WhatsApp using reverse OTP. Send OTP data to n8n webhook.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WAReverseRegisterRequest"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP data sent to n8n webhook"
+                    },
+                    "400": {
+                        "description": "Invalid data or phone already in use"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/reverse/send-link-otp/": {
+            "post": {
+                "operationId": "auth_wa_reverse_send-link-otp_create",
+                "description": "Send OTP data to n8n webhook for reverse WA authentication. User must initiate chat.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WAReverseSendLinkOTP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP data sent to n8n webhook"
+                    },
+                    "400": {
+                        "description": "Invalid phone number or phone already in use"
+                    },
+                    "429": {
+                        "description": "Too many requests, wait before resending"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/reverse/send-otp/": {
+            "post": {
+                "operationId": "auth_wa_reverse_send-otp_create",
+                "description": "Send OTP data to n8n webhook for reverse WA login/register. User must initiate chat. Auto-registers if phone not found.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WAReverseSendOTP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP data sent to n8n webhook"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/send-link-otp/": {
+            "post": {
+                "operationId": "auth_wa_send-link-otp_create",
+                "description": "Send OTP to link WhatsApp number to authenticated user.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WASendLinkOTP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP sent to WhatsApp"
+                    },
+                    "400": {
+                        "description": "Invalid phone number or phone already in use"
+                    },
+                    "429": {
+                        "description": "Too many requests, wait before resending"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/send-otp/": {
+            "post": {
+                "operationId": "auth_wa_send-otp_create",
+                "description": "Send OTP to WhatsApp for login.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WASendOTP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "OTP sent if phone is registered"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/verify-link/": {
+            "post": {
+                "operationId": "auth_wa_verify-link_create",
+                "description": "Verify OTP to link WhatsApp number.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WAVerifyLink"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Phone number linked successfully"
+                    },
+                    "400": {
+                        "description": "Invalid or expired OTP"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/wa/verify-otp/": {
+            "post": {
+                "operationId": "auth_wa_verify-otp_create",
+                "description": "Verify OTP and receive JWT tokens for login.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/WAVerifyOTP"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Login successful, JWT tokens returned",
+                        "examples": {
+                            "application/json": {
+                                "refresh": "eyJhbGciOiJIUzI1...",
+                                "access": "eyJhbGciOiJIUzI1..."
+                            }
+                        }
+                    },
+                    "400": {
+                        "description": "Invalid or expired OTP"
+                    },
+                    "404": {
+                        "description": "User not found"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/iam/permissions/": {
+            "get": {
+                "operationId": "iam_permissions_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/Permission"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "post": {
+                "operationId": "iam_permissions_create",
+                "description": "Create a new permission.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "name"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "description": "Permission Name",
+                                    "type": "string",
+                                    "example": "user.create"
+                                },
+                                "description": {
+                                    "description": "Description",
+                                    "type": "string",
+                                    "example": "Can create new users"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "required": [
+                                "name"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "description": "Permission Name",
+                                    "type": "string",
+                                    "example": "user.create"
+                                },
+                                "description": {
+                                    "description": "Description",
+                                    "type": "string",
+                                    "example": "Can create new users"
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": []
+        },
+        "/iam/permissions/{id}/": {
+            "get": {
+                "operationId": "iam_permissions_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Permission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "put": {
+                "operationId": "iam_permissions_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Permission"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Permission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "patch": {
+                "operationId": "iam_permissions_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Permission"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Permission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "delete": {
+                "operationId": "iam_permissions_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "description": "A UUID string identifying this permission.",
+                    "required": true,
+                    "type": "string",
+                    "format": "uuid"
+                }
+            ]
+        },
+        "/iam/roles/": {
+            "get": {
+                "operationId": "iam_roles_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/Role"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "post": {
+                "operationId": "iam_roles_create",
+                "description": "Create a new role with optional permissions.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "name"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "description": "Role Name",
+                                    "type": "string",
+                                    "example": "HR Manager"
+                                },
+                                "description": {
+                                    "description": "Description",
+                                    "type": "string",
+                                    "example": "Can manage employee data"
+                                },
+                                "organization": {
+                                    "description": "Organization ID (Optional for Global Roles)",
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "permission_ids": {
+                                    "description": "List of Permission IDs",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "example": [
+                                        "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "required": [
+                                "name"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "name": {
+                                    "description": "Role Name",
+                                    "type": "string",
+                                    "example": "HR Manager"
+                                },
+                                "description": {
+                                    "description": "Description",
+                                    "type": "string",
+                                    "example": "Can manage employee data"
+                                },
+                                "organization": {
+                                    "description": "Organization ID (Optional for Global Roles)",
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "permission_ids": {
+                                    "description": "List of Permission IDs",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "example": [
+                                        "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": []
+        },
+        "/iam/roles/{id}/": {
+            "get": {
+                "operationId": "iam_roles_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Role"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "put": {
+                "operationId": "iam_roles_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Role"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Role"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "patch": {
+                "operationId": "iam_roles_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Role"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Role"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "delete": {
+                "operationId": "iam_roles_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "description": "A UUID string identifying this role.",
+                    "required": true,
+                    "type": "string",
+                    "format": "uuid"
+                }
+            ]
+        },
+        "/iam/user-permissions/": {
+            "get": {
+                "operationId": "iam_user-permissions_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/UserPermission"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "post": {
+                "operationId": "iam_user-permissions_create",
+                "description": "Assign direct permissions to an organization member.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "organization_member"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "organization_member": {
+                                    "description": "Organization Member UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "permission_ids": {
+                                    "description": "List of Permission IDs",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "example": [
+                                        "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "required": [
+                                "organization_member"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "organization_member": {
+                                    "description": "Organization Member UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "permission_ids": {
+                                    "description": "List of Permission IDs",
+                                    "type": "array",
+                                    "items": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "example": [
+                                        "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                    ]
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": []
+        },
+        "/iam/user-permissions/{id}/": {
+            "get": {
+                "operationId": "iam_user-permissions_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserPermission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "put": {
+                "operationId": "iam_user-permissions_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserPermission"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserPermission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "patch": {
+                "operationId": "iam_user-permissions_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserPermission"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserPermission"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "delete": {
+                "operationId": "iam_user-permissions_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "description": "A UUID string identifying this user permission.",
+                    "required": true,
+                    "type": "string",
+                    "format": "uuid"
+                }
+            ]
+        },
+        "/iam/user-roles/": {
+            "get": {
+                "operationId": "iam_user-roles_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/UserRole"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "post": {
+                "operationId": "iam_user-roles_create",
+                "description": "Assign a role to an organization member.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "organization_member",
+                                "role"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "organization_member": {
+                                    "description": "Organization Member UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "role": {
+                                    "description": "Role UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "required": [
+                                "organization_member",
+                                "role"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "organization_member": {
+                                    "description": "Organization Member UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                },
+                                "role": {
+                                    "description": "Role UUID",
+                                    "type": "string",
+                                    "example": "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+                                }
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": []
+        },
+        "/iam/user-roles/{id}/": {
+            "get": {
+                "operationId": "iam_user-roles_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserRole"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "put": {
+                "operationId": "iam_user-roles_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserRole"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserRole"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "patch": {
+                "operationId": "iam_user-roles_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserRole"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserRole"
+                        }
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "delete": {
+                "operationId": "iam_user-roles_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "iam"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "description": "A UUID string identifying this user role.",
+                    "required": true,
+                    "type": "string",
+                    "format": "uuid"
+                }
+            ]
+        },
+        "/org/members/": {
+            "get": {
+                "operationId": "org_members_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/OrganizationMember"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "post": {
+                "operationId": "org_members_create",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": []
+        },
+        "/org/members/mine/": {
+            "get": {
+                "operationId": "org_members_my_memberships",
+                "description": "List ALL memberships for the current user (Active and Inactive).\nUse this to populate the \"Switch Organization\" dropdown.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/OrganizationMember"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": []
+        },
+        "/org/members/{id}/": {
+            "get": {
+                "operationId": "org_members_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "put": {
+                "operationId": "org_members_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "patch": {
+                "operationId": "org_members_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "delete": {
+                "operationId": "org_members_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "type": "string"
+                }
+            ]
+        },
+        "/org/members/{id}/switch-session/": {
+            "post": {
+                "operationId": "org_members_switch_session",
+                "description": "Custom action to switch the user's active session to this organization.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/OrganizationMember"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "type": "string"
+                }
+            ]
+        },
+        "/org/organizations/": {
+            "get": {
+                "operationId": "org_organizations_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/Organization"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "post": {
+                "operationId": "org_organizations_create",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": []
+        },
+        "/org/organizations/{id}/": {
+            "get": {
+                "operationId": "org_organizations_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "put": {
+                "operationId": "org_organizations_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "patch": {
+                "operationId": "org_organizations_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/Organization"
+                        }
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "delete": {
+                "operationId": "org_organizations_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "org"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "description": "A UUID string identifying this organization.",
+                    "required": true,
+                    "type": "string",
+                    "format": "uuid"
+                }
+            ]
+        },
+        "/profiles/": {
+            "get": {
+                "operationId": "profiles_list",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "type": "array",
+                            "items": {
+                                "$ref": "#/definitions/UserProfile"
+                            }
+                        }
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "post": {
+                "operationId": "profiles_create",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                ],
+                "responses": {
+                    "201": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "parameters": []
+        },
+        "/profiles/{id}/": {
+            "get": {
+                "operationId": "profiles_read",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "put": {
+                "operationId": "profiles_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "patch": {
+                "operationId": "profiles_partial_update",
+                "description": "",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "",
+                        "schema": {
+                            "$ref": "#/definitions/UserProfile"
+                        }
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "delete": {
+                "operationId": "profiles_delete",
+                "description": "",
+                "parameters": [],
+                "responses": {
+                    "204": {
+                        "description": ""
+                    }
+                },
+                "tags": [
+                    "profiles"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "id",
+                    "in": "path",
+                    "required": true,
+                    "type": "string"
+                }
+            ]
+        }
+    },
+    "definitions": {
+        "ChangePassword": {
+            "required": [
+                "old_password",
+                "new_password"
+            ],
+            "type": "object",
+            "properties": {
+                "old_password": {
+                    "title": "Old password",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "new_password": {
+                    "title": "New password",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "User": {
+            "required": [
+                "email",
+                "password"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "email": {
+                    "title": "Email",
+                    "type": "string",
+                    "format": "email",
+                    "maxLength": 254,
+                    "minLength": 1
+                },
+                "password": {
+                    "title": "Password",
+                    "type": "string",
+                    "maxLength": 128,
+                    "minLength": 1
+                }
+            }
+        },
+        "PasswordResetConfirm": {
+            "required": [
+                "email",
+                "otp",
+                "new_password"
+            ],
+            "type": "object",
+            "properties": {
+                "email": {
+                    "title": "Email",
+                    "type": "string",
+                    "format": "email",
+                    "minLength": 1
+                },
+                "otp": {
+                    "title": "Otp",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "new_password": {
+                    "title": "New password",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "PasswordResetRequest": {
+            "required": [
+                "email"
+            ],
+            "type": "object",
+            "properties": {
+                "email": {
+                    "title": "Email",
+                    "type": "string",
+                    "format": "email",
+                    "minLength": 1
+                }
+            }
+        },
+        "TokenVerify": {
+            "required": [
+                "token"
+            ],
+            "type": "object",
+            "properties": {
+                "token": {
+                    "title": "Token",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "WARegisterRequest": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "email": {
+                    "title": "Email",
+                    "type": "string",
+                    "format": "email"
+                }
+            }
+        },
+        "WARegisterVerify": {
+            "required": [
+                "phone",
+                "otp"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "otp": {
+                    "title": "Otp",
+                    "type": "string",
+                    "maxLength": 6,
+                    "minLength": 1
+                }
+            }
+        },
+        "WAReverseRegisterRequest": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "email": {
+                    "title": "Email",
+                    "type": "string",
+                    "format": "email"
+                }
+            }
+        },
+        "WAReverseSendLinkOTP": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "WAReverseSendOTP": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "WASendLinkOTP": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "WASendOTP": {
+            "required": [
+                "phone"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                }
+            }
+        },
+        "WAVerifyLink": {
+            "required": [
+                "otp"
+            ],
+            "type": "object",
+            "properties": {
+                "otp": {
+                    "title": "Otp",
+                    "type": "string",
+                    "maxLength": 6,
+                    "minLength": 1
+                }
+            }
+        },
+        "WAVerifyOTP": {
+            "required": [
+                "phone",
+                "otp"
+            ],
+            "type": "object",
+            "properties": {
+                "phone": {
+                    "title": "Phone",
+                    "type": "string",
+                    "minLength": 1
+                },
+                "otp": {
+                    "title": "Otp",
+                    "type": "string",
+                    "maxLength": 6,
+                    "minLength": 1
+                }
+            }
+        },
+        "Permission": {
+            "required": [
+                "name"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "name": {
+                    "title": "Name",
+                    "type": "string",
+                    "maxLength": 255,
+                    "minLength": 1
+                },
+                "description": {
+                    "title": "Description",
+                    "type": "string"
+                }
+            }
+        },
+        "Role": {
+            "required": [
+                "name"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "name": {
+                    "title": "Name",
+                    "type": "string",
+                    "maxLength": 255,
+                    "minLength": 1
+                },
+                "description": {
+                    "title": "Description",
+                    "type": "string"
+                },
+                "organization": {
+                    "title": "Organization",
+                    "type": "string",
+                    "format": "uuid",
+                    "x-nullable": true
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Permission"
+                    },
+                    "readOnly": true
+                },
+                "permission_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                }
+            }
+        },
+        "UserPermission": {
+            "required": [
+                "organization_member"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "organization_member": {
+                    "title": "Organization member",
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "permissions": {
+                    "type": "array",
+                    "items": {
+                        "$ref": "#/definitions/Permission"
+                    },
+                    "readOnly": true
+                },
+                "permission_ids": {
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "format": "uuid"
+                    }
+                },
+                "assigned_at": {
+                    "title": "Assigned at",
+                    "type": "string",
+                    "format": "date-time",
+                    "readOnly": true
+                }
+            }
+        },
+        "UserRole": {
+            "required": [
+                "organization_member",
+                "role"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "organization_member": {
+                    "title": "Organization member",
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "role": {
+                    "title": "Role",
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "role_detail": {
+                    "$ref": "#/definitions/Role"
+                },
+                "assigned_at": {
+                    "title": "Assigned at",
+                    "type": "string",
+                    "format": "date-time",
+                    "readOnly": true
+                }
+            }
+        },
+        "OrganizationMember": {
+            "required": [
+                "user",
+                "organization"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "user": {
+                    "title": "User",
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "organization": {
+                    "title": "Organization",
+                    "type": "string",
+                    "format": "uuid"
+                },
+                "joined_at": {
+                    "title": "Joined at",
+                    "type": "string",
+                    "format": "date-time",
+                    "readOnly": true
+                },
+                "is_session_active": {
+                    "title": "Is session active",
+                    "type": "boolean",
+                    "readOnly": true
+                }
+            }
+        },
+        "Organization": {
+            "required": [
+                "name",
+                "package_type"
+            ],
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "name": {
+                    "title": "Name",
+                    "type": "string",
+                    "maxLength": 255,
+                    "minLength": 1
+                },
+                "owner": {
+                    "title": "Owner",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "package_type": {
+                    "title": "Package type",
+                    "type": "string",
+                    "maxLength": 50,
+                    "minLength": 1
+                },
+                "created_at": {
+                    "title": "Created at",
+                    "type": "string",
+                    "format": "date-time",
+                    "readOnly": true
+                },
+                "updated_at": {
+                    "title": "Updated at",
+                    "type": "string",
+                    "format": "date-time",
+                    "readOnly": true
+                }
+            }
+        },
+        "UserProfile": {
+            "type": "object",
+            "properties": {
+                "id": {
+                    "title": "Id",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "user": {
+                    "title": "User",
+                    "type": "string",
+                    "format": "uuid",
+                    "readOnly": true
+                },
+                "bio": {
+                    "title": "Bio",
+                    "type": "string"
+                },
+                "profile_picture": {
+                    "title": "Profile picture",
+                    "type": "string",
+                    "format": "uri",
+                    "maxLength": 200,
+                    "x-nullable": true
+                },
+                "phone_number": {
+                    "title": "Phone number",
+                    "type": "string",
+                    "maxLength": 15
+                },
+                "preferences": {
+                    "title": "Preferences",
+                    "type": "object",
+                    "x-nullable": true
+                }
+            }
+        }
+    }
+}

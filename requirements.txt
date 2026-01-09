@@ -23,7 +23,7 @@ inflection==0.5.1
 multidict==6.0.5
 oauthlib==3.2.2
 packaging==24.1
-pillow==10.3.0
+pillow>=10.3.0
 protobuf==5.27.1
 psycopg2-binary
 pulsar-client
