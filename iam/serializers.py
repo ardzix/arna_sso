@@ -336,50 +336,50 @@ class UserPermissionSerializer(serializers.ModelSerializer):
             found_ids = set(str(p.id) for p in permissions)
             requested_ids = set(str(pid) for pid in perm_ids)
             
-                # Check if all requested permissions exist
-                missing_ids = requested_ids - found_ids
-                if missing_ids:
-                    raise serializers.ValidationError({
-                        'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
-                    })
-                
-                # Validate permissions belong to same organization
-                member_org = instance.organization_member.organization
-                invalid_perms = []
-                for perm in permissions:
-                    # Permission must belong to the same organization as member
-                    # No global permissions allowed - all permissions are organization-specific
-                    if perm.organization != member_org:
-                        invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
-                
-                if invalid_perms:
-                    raise serializers.ValidationError({
-                        'permission_ids': [f"Permissions must belong to the same organization as the member. Invalid: {', '.join(invalid_perms)}"]
-                    })
-                
-                # All validations passed, set permissions
-                try:
-                    instance.permissions.set(perm_ids)
-                except Exception as e:
-                    # Extract clean error message
-                    error_msg = str(e)
-                    if isinstance(e, serializers.ValidationError):
-                        if hasattr(e, 'detail'):
-                            if isinstance(e.detail, dict):
-                                # Extract first error message from dict
-                                for key, value in e.detail.items():
-                                    if isinstance(value, list):
-                                        error_msg = value[0] if value else str(e)
-                                    else:
-                                        error_msg = str(value)
-                                    break
-                            else:
-                                error_msg = str(e.detail)
+            # Check if all requested permissions exist
+            missing_ids = requested_ids - found_ids
+            if missing_ids:
+                raise serializers.ValidationError({
+                    'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
+                })
+            
+            # Validate permissions belong to same organization
+            member_org = instance.organization_member.organization
+            invalid_perms = []
+            for perm in permissions:
+                # Permission must belong to the same organization as member
+                # No global permissions allowed - all permissions are organization-specific
+                if perm.organization != member_org:
+                    invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
+            
+            if invalid_perms:
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Permissions must belong to the same organization as the member. Invalid: {', '.join(invalid_perms)}"]
+                })
+            
+            # All validations passed, set permissions
+            try:
+                instance.permissions.set(perm_ids)
+            except Exception as e:
+                # Extract clean error message
+                error_msg = str(e)
+                if isinstance(e, serializers.ValidationError):
+                    if hasattr(e, 'detail'):
+                        if isinstance(e.detail, dict):
+                            # Extract first error message from dict
+                            for key, value in e.detail.items():
+                                if isinstance(value, list):
+                                    error_msg = value[0] if value else str(e)
+                                else:
+                                    error_msg = str(value)
+                                break
                         else:
-                            error_msg = str(e)
-                    raise serializers.ValidationError({
-                        'permission_ids': [f"Error setting permissions: {error_msg}"]
-                    })
+                            error_msg = str(e.detail)
+                    else:
+                        error_msg = str(e)
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Error setting permissions: {error_msg}"]
+                })
         return instance
 
     def update(self, instance, validated_data):
