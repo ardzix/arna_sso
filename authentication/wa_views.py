@@ -18,6 +18,7 @@ from authentication.serializers import (
     WAReverseSendLinkOTPSerializer,
     WAReverseRegisterRequestSerializer,
     WAReverseSendOTPSerializer,
+    MyTokenObtainPairSerializer,
 )
 from authentication.libs.utils import (
     normalize_phone_number,
@@ -264,7 +265,7 @@ class WARegisterVerifyView(APIView):
             user.save()
             
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             
             return Response(
                 {
@@ -392,7 +393,7 @@ class WAVerifyOTPView(APIView):
             user.save()
             
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             
             return Response(
                 {

@@ -16,15 +16,26 @@ class HasOrganizationPermission(permissions.BasePermission):
         # 1. Try to get from object if available
         if obj:
             if hasattr(obj, 'organization'):
-                return obj.organization
+                org = obj.organization
+                # Validate user has access
+                if self._user_has_org_access(request.user, org):
+                    return org
+                return None
             if hasattr(obj, 'organization_member'):
-                return obj.organization_member.organization
+                org = obj.organization_member.organization
+                if self._user_has_org_access(request.user, org):
+                    return org
+                return None
         
         # 2. Try to get from request data (for create actions)
         if 'organization' in request.data:
             from organization.models import Organization
             try:
-                return Organization.objects.get(pk=request.data['organization'])
+                org = Organization.objects.get(pk=request.data['organization'])
+                # SECURITY: Validate user has access to this organization
+                if not self._user_has_org_access(request.user, org):
+                    return None
+                return org
             except Organization.DoesNotExist:
                 return None
         
@@ -33,11 +44,22 @@ class HasOrganizationPermission(permissions.BasePermission):
             from organization.models import OrganizationMember
             try:
                 member = OrganizationMember.objects.get(pk=request.data['organization_member'])
-                return member.organization
+                # SECURITY: Validate user has access to this member's organization
+                org = member.organization
+                if not self._user_has_org_access(request.user, org):
+                    return None
+                return org
             except OrganizationMember.DoesNotExist:
                 return None
                 
         return None
+    
+    def _user_has_org_access(self, user, org):
+        """Check if user has access to organization (owner or member)"""
+        if org.owner == user:
+            return True
+        from organization.models import OrganizationMember
+        return OrganizationMember.objects.filter(user=user, organization=org).exists()
 
     def has_permission(self, request, view):
         # We only check permissions on modification requests generally,

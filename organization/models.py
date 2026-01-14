@@ -27,6 +27,13 @@ class OrganizationMember(models.Model):
 
     class Meta:
         unique_together = ('user', 'organization')
+        constraints = [
+            models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(is_session_active=True),
+                name='unique_active_session_per_user'
+            )
+        ]
 
     def __str__(self):
         return f"{self.user.email} in {self.organization.name}"

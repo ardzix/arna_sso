@@ -43,7 +43,9 @@ class RoleViewSet(viewsets.ModelViewSet):
         # LOGIC: Show Roles that are either:
         # 1. GLOBAL (organization is NULL)
         # 2. ORGANIZATION-SPECIFIC (organization matches user's *ACTIVE* membership)
-        return Role.objects.filter(
+        return Role.objects.select_related('organization').prefetch_related(
+            'permissions', 'organization__members'
+        ).filter(
             Q(organization__isnull=True) | 
             Q(organization__members__user=user, organization__members__is_session_active=True)
         ).distinct()
