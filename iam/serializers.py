@@ -37,8 +37,25 @@ class RoleSerializer(serializers.ModelSerializer):
 
     def update(self, instance, validated_data):
         perm_ids = validated_data.pop('permission_ids', None)
+        
+        # Validate organization change
+        new_org = validated_data.get('organization', instance.organization)
+        if new_org != instance.organization:
+            # Organization change should be validated by permission class
+            # But we ensure the organization is valid
+            if new_org is not None and not hasattr(new_org, 'id'):
+                # If it's an ID, validate it exists
+                from .models import Role
+                from organization.models import Organization
+                try:
+                    new_org = Organization.objects.get(pk=new_org)
+                except Organization.DoesNotExist:
+                    raise serializers.ValidationError("Invalid organization ID")
+        
         instance.name = validated_data.get('name', instance.name)
         instance.description = validated_data.get('description', instance.description)
+        if new_org != instance.organization:
+            instance.organization = new_org
         instance.save()
         
         if perm_ids is not None:

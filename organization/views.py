@@ -4,6 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
+from django.db import transaction
 from .models import Organization, OrganizationMember
 from .serializers import OrganizationSerializer, OrganizationMemberSerializer
 from iam.permissions import CanManageOrganizationMembers
@@ -22,11 +23,14 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # Show Organizations where:
         # 1. User is the OWNER (Creator) OR MEMBER
         # 2. AND the user has an ACTIVE SESSION in that organization
-        return Organization.objects.filter(
+        return Organization.objects.select_related('owner').prefetch_related(
+            'members__user'
+        ).filter(
             members__user=user,
             members__is_session_active=True
         ).distinct()
 
+    @transaction.atomic
     def perform_create(self, serializer):
         user = self.request.user
         if 'owner' not in serializer.validated_data:
@@ -37,10 +41,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # AUTOMATICALLY CREATE MEMBERSHIP FOR OWNER
         member, created = OrganizationMember.objects.get_or_create(user=user, organization=org)
         
-        # SET AS ACTIVE SESSION (and deactivate others)
+        # SET AS ACTIVE SESSION (atomic operation - deactivate others and activate this one)
         OrganizationMember.objects.filter(user=user).update(is_session_active=False)
+        member.refresh_from_db()
         member.is_session_active = True
-        member.save()
+        member.save(update_fields=['is_session_active'])
 
 
 class OrganizationMemberViewSet(viewsets.ModelViewSet):
@@ -53,7 +58,9 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
         
         user = self.request.user
         # Show members of the organization where the user currently has an ACTIVE SESSION
-        return OrganizationMember.objects.filter(
+        return OrganizationMember.objects.select_related(
+            'user', 'organization', 'organization__owner'
+        ).filter(
             organization__members__user=user,
             organization__members__is_session_active=True
         ).distinct()
@@ -73,6 +80,7 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
         serializer.save(is_session_active=False)
 
     @action(detail=True, methods=['post'], url_path='switch-session')
+    @transaction.atomic
     def switch_session(self, request, pk=None):
         """
         Custom action to switch the user's active session to this organization.
@@ -86,14 +94,14 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
         # 1. Fetch membership ensuring it belongs to the user (security check)
         membership = get_object_or_404(OrganizationMember, pk=pk, user=request.user)
 
-        # 2. Deactivate all other sessions for this user
+        # 2. Atomic operation: Deactivate all other sessions and activate this one
         OrganizationMember.objects.filter(user=request.user).update(is_session_active=False)
-        
-        # 3. Activate this session
+        # Refresh membership to get latest data
+        membership.refresh_from_db()
         membership.is_session_active = True
-        membership.save()
+        membership.save(update_fields=['is_session_active'])
 
-        # 4. Generate New Tokens
+        # 3. Generate New Tokens
         # We MUST use our custom serializer to ensuring all claims (org_id, roles) are included.
         from authentication.serializers import MyTokenObtainPairSerializer
         
