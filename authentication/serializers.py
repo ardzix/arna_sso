@@ -1,10 +1,13 @@
 from rest_framework import serializers
 from authentication.models import User
+from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from organization.models import OrganizationMember
+from iam.models import Permission
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
         model = User
-        fields = ['email', 'password']  # Ensure both email and password are included
+        fields = ['id', 'email', 'password']  # Ensure both email and password are included
         extra_kwargs = {
             'password': {'write_only': True}  # Ensure password is write-only
         }
@@ -17,6 +20,57 @@ class UserSerializer(serializers.ModelSerializer):
         user.set_password(validated_data['password'])
         user.save()
         return user
+
+class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
+    @classmethod
+    def get_token(cls, user):
+        token = super().get_token(user)
+
+        # 1. Find the Active Session
+        # 1. Find the Active Session
+        # Use filter().first() to avoid MultipleObjectsReturned error
+        member = OrganizationMember.objects.filter(user=user, is_session_active=True).first()
+        
+        if member:
+            # 2. Add Organization ID
+            member.organization.refresh_from_db() # Ensure we have latest data
+            token['org_id'] = str(member.organization.id)
+            token['org_name'] = member.organization.name
+            
+            # 3. Add Roles
+            # UserRole links OrganizationMember to Role
+            roles = list(member.userrole_set.values_list('role__name', flat=True))
+            token['roles'] = roles
+            
+            # 4. Add Permissions
+            permissions = set()
+            
+            # 4a. Permissions from Roles
+            role_permissions = Permission.objects.filter(roles__userrole__organization_member=member).values_list('name', flat=True)
+            permissions.update(role_permissions)
+            
+            # 4b. Direct Permissions
+            # UserPermission links OrganizationMember to Permission (via M2M permissions field)
+            direct_permissions = Permission.objects.filter(direct_members__organization_member=member).values_list('name', flat=True)
+            permissions.update(direct_permissions)
+            
+            token['permissions'] = list(permissions)
+            
+            # 5. Add Owner Flag
+            # Check if this user is the owner of the organization
+            try:
+                token['is_owner'] = (member.organization.owner_id == user.id)
+            except AttributeError:
+                token['is_owner'] = False
+            
+        else:
+            # Handle user with no active session (maybe new user or just created)
+            token['org_id'] = None
+            token['roles'] = []
+            token['permissions'] = []
+            token['is_owner'] = False
+
+        return token
 
 class PasswordResetRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
