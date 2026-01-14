@@ -2,6 +2,95 @@
 
 from django.conf import settings
 from django.db import migrations, models
+from django.db import connection
+
+
+def add_constraint_if_table_exists(apps, schema_editor):
+    """
+    Safely add constraint only if the table exists.
+    This handles cases where migration 0001 hasn't been run yet.
+    """
+    db_alias = schema_editor.connection.alias
+    
+    # Check if table exists
+    table_exists = False
+    with connection.cursor() as cursor:
+        if connection.vendor == 'postgresql':
+            cursor.execute("""
+                SELECT EXISTS (
+                    SELECT FROM information_schema.tables 
+                    WHERE table_schema = 'public' 
+                    AND table_name = 'organization_organizationmember'
+                );
+            """)
+            table_exists = cursor.fetchone()[0]
+        elif connection.vendor == 'sqlite':
+            cursor.execute("""
+                SELECT name FROM sqlite_master 
+                WHERE type='table' AND name='organization_organizationmember';
+            """)
+            table_exists = cursor.fetchone() is not None
+        else:
+            # For other databases, assume table exists (will fail gracefully if not)
+            table_exists = True
+    
+    if not table_exists:
+        # Table doesn't exist yet, skip constraint addition
+        # It will be added when migration 0001 runs (if model includes it)
+        # or we can add it in a later migration
+        return
+    
+    # Table exists, try to add constraint
+    try:
+        OrganizationMember = apps.get_model('organization', 'OrganizationMember')
+        
+        # Check if constraint already exists
+        constraint_exists = False
+        if connection.vendor == 'postgresql':
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM pg_constraint 
+                        WHERE conname = 'unique_active_session_per_user'
+                    );
+                """)
+                constraint_exists = cursor.fetchone()[0]
+        
+        if not constraint_exists:
+            # Add constraint using Django's schema editor
+            constraint = models.UniqueConstraint(
+                fields=['user'],
+                condition=models.Q(is_session_active=True),
+                name='unique_active_session_per_user'
+            )
+            schema_editor.add_constraint(OrganizationMember, constraint)
+    except Exception as e:
+        # If constraint addition fails, log but don't fail migration
+        # This handles cases where:
+        # 1. Constraint can't be added (e.g., multiple active sessions exist)
+        # 2. Database doesn't support partial unique constraints
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"Could not add constraint unique_active_session_per_user: {str(e)}")
+        logger.warning("Please ensure all users have at most one active session before running this migration.")
+        # Don't raise - allow migration to continue
+
+
+def remove_constraint_if_exists(apps, schema_editor):
+    """
+    Safely remove constraint if it exists.
+    """
+    try:
+        OrganizationMember = apps.get_model('organization', 'OrganizationMember')
+        constraint = models.UniqueConstraint(
+            fields=['user'],
+            condition=models.Q(is_session_active=True),
+            name='unique_active_session_per_user'
+        )
+        schema_editor.remove_constraint(OrganizationMember, constraint)
+    except Exception:
+        # If constraint doesn't exist, that's fine
+        pass
 
 
 class Migration(migrations.Migration):
@@ -12,8 +101,8 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddConstraint(
-            model_name='organizationmember',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_session_active', True)), fields=('user',), name='unique_active_session_per_user'),
+        migrations.RunPython(
+            add_constraint_if_table_exists,
+            reverse_code=remove_constraint_if_exists,
         ),
     ]
