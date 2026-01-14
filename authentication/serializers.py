@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from authentication.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.tokens import RefreshToken
 from organization.models import OrganizationMember
 from iam.models import Permission
 
@@ -116,3 +117,22 @@ class WAReverseRegisterRequestSerializer(serializers.Serializer):
 
 class WAReverseSendOTPSerializer(serializers.Serializer):
     phone = serializers.CharField()
+
+class PreAuthTokenSerializer(serializers.Serializer):
+    """
+    Serializer to generate a short-lived Pre-Auth Token.
+    This token proves the user has passed the first factor (password/social/otp)
+    and is now eligible to attempt MFA verification.
+    """
+    @classmethod
+    def get_token(cls, user):
+        token = RefreshToken.for_user(user)
+        # Customize the token
+        token["type"] = "pre_auth"
+        del token["token_type"] # Remove access/refresh type
+        
+        # Set short expiration from settings
+        from django.conf import settings
+        token.set_exp(lifetime=settings.SIMPLE_JWT['PRE_AUTH_TOKEN_LIFETIME'])
+        
+        return str(token)
