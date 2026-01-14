@@ -1,6 +1,6 @@
 import pyotp
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -8,7 +8,7 @@ from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from django.contrib.auth import authenticate
 from django.utils.timezone import now
 from authentication.models import User
-from authentication.serializers import UserSerializer
+from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer
 from datetime import timedelta
 from .libs.utils import generate_otp
 from .signals import send_otp_email
@@ -78,6 +78,7 @@ class LoginView(TokenObtainPairView):
     """
     This will handle login and return access and refresh tokens if MFA is not enabled.
     """
+    serializer_class = MyTokenObtainPairSerializer
 
     @swagger_auto_schema(
         operation_description="Login a user and return access and refresh tokens.",
@@ -283,7 +284,7 @@ class MFAAwareLoginView(APIView):
                 )
             else:
                 # MFA is not enabled, return the JWT tokens
-                refresh = RefreshToken.for_user(user)
+                refresh = MyTokenObtainPairSerializer.get_token(user)
                 # Emit signal to log login asynchronously
                 user_logged_in.send(
                     sender=self.__class__, user=user, metadata={"email": user.email}
@@ -341,7 +342,7 @@ class MFAVerifyView(APIView):
             totp = pyotp.TOTP(user.mfa_secret)
             if totp.verify(mfa_token):
                 # MFA verified, return the JWT tokens
-                refresh = RefreshToken.for_user(user)
+                refresh = MyTokenObtainPairSerializer.get_token(user)
 
                 # Emit signal for successful MFA verification
                 mfa_verified.send(
@@ -578,7 +579,7 @@ class GoogleLoginView(APIView):
             )
 
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             user_logged_in.send(
                 sender=self.__class__, user=user, metadata={"email": email}
             )
@@ -599,3 +600,34 @@ from django.shortcuts import render
 
 def homepage(request):
     return render(request, 'homepage.html')
+
+class ManageUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Get details of the currently authenticated user.",
+        responses={
+            200: UserSerializer(),
+            401: "Unauthorized",
+        },
+    )
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_description="Update details of the currently authenticated user.",
+        request_body=UserSerializer,
+        responses={
+            200: UserSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized",
+        },
+    )
+    def patch(self, request):
+        user = request.user
+        serializer = UserSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

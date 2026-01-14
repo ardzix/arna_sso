@@ -11,7 +11,7 @@ from .views import (
     ResendOTPView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
-    ChangePasswordView, GoogleLoginView,
+    ChangePasswordView, GoogleLoginView, ManageUserView,
 )
 from .wa_views import (
     WASendLinkOTPView,
@@ -27,6 +27,7 @@ from .wa_views import (
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
+    path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('token/refresh/', RefreshTokenView.as_view(), name='token_refresh'),
     path('token/verify/', TokenVerifyView.as_view(), name='token_verify'),

@@ -42,7 +42,7 @@ INSTALLED_APPS = [
     'django_extensions',
     'corsheaders',
     'rest_framework',  # For REST APIs
-    'django_grpc_framework',  # For gRPC APIs
+    # 'django_grpc_framework',  # For gRPC APIs
     'authentication',
     'authorization',
     'iam',
@@ -53,6 +53,13 @@ INSTALLED_APPS = [
     'drf_yasg',
     'django_q',
 ]
+
+# Optional: Add gRPC framework only if installed
+try:
+    import grpc
+    INSTALLED_APPS.append('django_grpc_framework')
+except ImportError:
+    pass
 
 
 MIDDLEWARE = [
@@ -155,6 +162,8 @@ SWAGGER_SETTINGS = {
             'in': 'header'
         }
     },
+    'persistAuthorization': True,
+    'DEFAULT_INFO': 'sso_service.swagger_info.api_info',
 }
 
 
@@ -172,11 +181,14 @@ from datetime import timedelta
 
 
 # Load the keys
-with open('private.pem', 'r') as f:
-    private_key = f.read()
-
-with open('public.pem', 'r') as f:
-    public_key = f.read()
+try:
+    with open('private.pem', 'r') as f:
+        private_key = f.read()
+    with open('public.pem', 'r') as f:
+        public_key = f.read()
+except FileNotFoundError:
+    private_key = 'BUILD_KEY'
+    public_key = 'BUILD_KEY'
 
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
