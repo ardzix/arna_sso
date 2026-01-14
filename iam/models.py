@@ -5,8 +5,15 @@ from authentication.models import User
 
 class Permission(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
-    name = models.CharField(max_length=255, unique=True)
+    name = models.CharField(max_length=255)
+    # Multi-Tenancy Key:
+    # All permissions are ORGANIZATION-SPECIFIC (private to that specific organization).
+    # No global permissions allowed - this is a multi-tenant IAM service.
+    organization = models.ForeignKey('organization.Organization', on_delete=models.CASCADE, related_name='permissions')
     description = models.TextField(blank=True)
+
+    class Meta:
+        unique_together = ('organization', 'name')
 
     def __str__(self):
         return self.name
@@ -16,8 +23,9 @@ class Role(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=255)
     # Multi-Tenancy Key:
-    # - If NULL: This is a GLOBAL Role (visible to all organizations).
-    # - If SET: This is an ORGANIZATION Role (private to that specific organization).
+    # All roles are ORGANIZATION-SPECIFIC (private to that specific organization).
+    # No global roles allowed - this is a multi-tenant IAM service.
+    # Note: Field is nullable in DB for backward compatibility, but views/serializers enforce organization requirement.
     # Uses Lazy Reference ('app.Model') to avoid Circular Import errors.
     # ForeignKey = Many-to-One Relationship (One Org has many Roles).
     organization = models.ForeignKey('organization.Organization', on_delete=models.CASCADE, null=True, blank=True, related_name='roles')

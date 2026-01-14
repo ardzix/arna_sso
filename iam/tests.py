@@ -94,8 +94,8 @@ class IAMMultiTenancyTests(APITestCase):
         data = {
             'permissions': [self.perm.id]
         }
-        # Assuming we enabled OrganizationMemberViewSet update/partial_update in urls
-        response = self.client.patch(f'/api/org/members/{member.id}/', data)
+        # Update member via nested endpoint
+        response = self.client.patch(f'/api/organizations/{self.org_a.id}/members/{member.id}/', data)
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         
         member.refresh_from_db()
