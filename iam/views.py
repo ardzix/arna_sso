@@ -13,17 +13,16 @@ class RoleViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, CanManageRoles]
 
     @swagger_auto_schema(
-        operation_description="Create a new role with optional permissions.",
+        operation_description="Create a new role with optional permissions. Organization is automatically set from active organization session (cannot be overridden).",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
                 'name': openapi.Schema(type=openapi.TYPE_STRING, description='Role Name', example='HR Manager'),
                 'description': openapi.Schema(type=openapi.TYPE_STRING, description='Description', example='Can manage employee data'),
-                'organization': openapi.Schema(type=openapi.TYPE_STRING, format='uuid', description='Organization ID (Optional for Global Roles)'),
                 'permission_ids': openapi.Schema(
                     type=openapi.TYPE_ARRAY,
                     items=openapi.Schema(type=openapi.TYPE_STRING, format='uuid'),
-                    description='List of Permission IDs',
+                    description='List of Permission IDs (must belong to active organization)',
                     example=['3fa85f64-5717-4562-b3fc-2c963f66afa6']
                 ),
             },
@@ -40,11 +39,13 @@ class RoleViewSet(viewsets.ModelViewSet):
             return Role.objects.none()
         
         user = self.request.user
-        # LOGIC: Show Roles that are either:
-        # 1. GLOBAL (organization is NULL)
-        # 2. ORGANIZATION-SPECIFIC (organization matches user's *ACTIVE* membership)
-        return Role.objects.filter(
-            Q(organization__isnull=True) | 
+        # LOGIC: Show only ORGANIZATION-SPECIFIC roles from user's *ACTIVE* organization
+        # Include roles from organizations where user is OWNER or MEMBER (with active session)
+        # No global roles - all roles are organization-specific
+        return Role.objects.select_related('organization').prefetch_related(
+            'permissions', 'organization__members'
+        ).filter(
+            Q(organization__owner=user) | 
             Q(organization__members__user=user, organization__members__is_session_active=True)
         ).distinct()
 
@@ -52,10 +53,10 @@ class RoleViewSet(viewsets.ModelViewSet):
 class PermissionViewSet(viewsets.ModelViewSet):
     queryset = Permission.objects.all()
     serializer_class = PermissionSerializer
-    permission_classes = [IsAuthenticated]
+    permission_classes = [IsAuthenticated, CanManageRoles]  # Same permission as managing roles
 
     @swagger_auto_schema(
-        operation_description="Create a new permission.",
+        operation_description="Create a new permission. Organization is automatically set from active organization session (cannot be overridden).",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
@@ -68,6 +69,19 @@ class PermissionViewSet(viewsets.ModelViewSet):
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
 
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False):
+            return Permission.objects.none()
+        
+        user = self.request.user
+        # LOGIC: Show only ORGANIZATION-SPECIFIC permissions from user's organization
+        # Include permissions from organizations where user is OWNER or MEMBER (with active session)
+        # No global permissions - all permissions are organization-specific
+        return Permission.objects.select_related('organization').filter(
+            Q(organization__owner=user) | 
+            Q(organization__members__user=user, organization__members__is_session_active=True)
+        ).distinct()
+
 
 class UserRoleViewSet(viewsets.ModelViewSet):
     queryset = UserRole.objects.all()
@@ -79,10 +93,26 @@ class UserRoleViewSet(viewsets.ModelViewSet):
             return UserRole.objects.none()
         
         user = self.request.user
-        # LOGIC: Only show assignments where the Role belongs to an Organization I am a member of (Active Session).
-        return UserRole.objects.filter(
-            organization_member__user=user,
-            organization_member__is_session_active=True
+        # LOGIC: Show all UserRole assignments in organizations where user is OWNER or has active session
+        # Get active organization membership first
+        from organization.models import OrganizationMember
+        active_membership = OrganizationMember.objects.filter(
+            user=user,
+            is_session_active=True
+        ).first()
+        
+        if not active_membership:
+            return UserRole.objects.none()
+        
+        org = active_membership.organization
+        
+        # Return all UserRoles for members in the organization
+        # Owner can see all, members can see all in their active organization
+        return UserRole.objects.select_related(
+            'organization_member', 'organization_member__user', 
+            'organization_member__organization', 'role'
+        ).filter(
+            organization_member__organization=org
         ).distinct()
 
     @swagger_auto_schema(
@@ -110,10 +140,26 @@ class UserPermissionViewSet(viewsets.ModelViewSet):
             return UserPermission.objects.none()
         
         user = self.request.user
-        # LOGIC: Only show permissions for my org members in my ACTIVE session.
-        return UserPermission.objects.filter(
-            organization_member__user=user,
-            organization_member__is_session_active=True
+        # LOGIC: Show all UserPermission assignments in organizations where user is OWNER or has active session
+        # Get active organization membership first
+        from organization.models import OrganizationMember
+        active_membership = OrganizationMember.objects.filter(
+            user=user,
+            is_session_active=True
+        ).first()
+        
+        if not active_membership:
+            return UserPermission.objects.none()
+        
+        org = active_membership.organization
+        
+        # Return all UserPermissions for members in the organization
+        # Owner can see all, members can see all in their active organization
+        return UserPermission.objects.select_related(
+            'organization_member', 'organization_member__user',
+            'organization_member__organization'
+        ).prefetch_related('permissions').filter(
+            organization_member__organization=org
         ).distinct()
 
     @swagger_auto_schema(

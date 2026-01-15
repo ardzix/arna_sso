@@ -4,9 +4,130 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
+from django.db import transaction
+from django.shortcuts import get_object_or_404
 from .models import Organization, OrganizationMember
 from .serializers import OrganizationSerializer, OrganizationMemberSerializer
 from iam.permissions import CanManageOrganizationMembers
+
+class OrganizationMemberViewSet(viewsets.ModelViewSet):
+    """
+    Nested ViewSet for managing members of a specific organization.
+    Accessible via: /api/organizations/{organization_pk}/members/
+    
+    Special behavior:
+    - POST without payload: Switch active session to this organization
+    - POST with payload: Create new member in this organization
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = OrganizationMemberSerializer
+
+    def get_permissions(self):
+        """
+        Override permissions:
+        - Switch session (POST without payload): Only need IsAuthenticated
+        - CRUD operations: Need CanManageOrganizationMembers
+        """
+        if self.action == 'create' and not self.request.data:
+            # Switch session - only need authentication
+            return [IsAuthenticated()]
+        # CRUD operations - need manage members permission
+        return [IsAuthenticated(), CanManageOrganizationMembers()]
+
+    def get_queryset(self):
+        if getattr(self, 'swagger_fake_view', False) or isinstance(self.request.user, AnonymousUser):
+            return OrganizationMember.objects.none()
+        
+        # Get organization from URL parameter
+        organization_pk = self.kwargs.get('organization_pk')
+        if not organization_pk:
+            return OrganizationMember.objects.none()
+        
+        # Verify user has access to this organization
+        user = self.request.user
+        organization = get_object_or_404(
+            Organization.objects.filter(
+                Q(owner=user) | Q(members__user=user)
+            ).distinct(),
+            pk=organization_pk
+        )
+        
+        # Return members of this specific organization
+        return OrganizationMember.objects.select_related(
+            'user', 'organization', 'organization__owner'
+        ).filter(organization=organization)
+
+    def create(self, request, *args, **kwargs):
+        """
+        Handle POST to /api/organizations/{id}/members/
+        - If no payload: Switch active session to this organization
+        - If payload provided: Create new member
+        """
+        # Get organization from URL parameter
+        organization_pk = self.kwargs.get('organization_pk')
+        organization = get_object_or_404(Organization, pk=organization_pk)
+        
+        # Check if request has payload
+        if not request.data or len(request.data) == 0:
+            # No payload = Switch session
+            return self._switch_session(request, organization)
+        
+        # Has payload = Create member
+        return super().create(request, *args, **kwargs)
+
+    def _switch_session(self, request, organization):
+        """
+        Switch active session to this organization.
+        Called when POST /api/organizations/{id}/members/ with no payload.
+        """
+        user = request.user
+        
+        # Check if user is a member of this organization
+        membership = OrganizationMember.objects.filter(
+            user=user,
+            organization=organization
+        ).first()
+        
+        if not membership:
+            return Response(
+                {"error": "You are not a member of this organization"},
+                status=status.HTTP_403_FORBIDDEN
+            )
+        
+        # Atomic operation: Deactivate all other sessions and activate this one
+        with transaction.atomic():
+            OrganizationMember.objects.filter(user=user).update(is_session_active=False)
+            membership.refresh_from_db()
+            membership.is_session_active = True
+            membership.save(update_fields=['is_session_active'])
+
+        # Generate New Tokens with updated org context
+        from authentication.serializers import MyTokenObtainPairSerializer
+        refresh = MyTokenObtainPairSerializer.get_token(user)
+
+        return Response({
+            "status": "Session switched to " + organization.name,
+            "access": str(refresh.access_token),
+            "refresh": str(refresh)
+        }, status=status.HTTP_200_OK)
+
+    def perform_create(self, serializer):
+        # Get organization from URL parameter
+        organization_pk = self.kwargs.get('organization_pk')
+        organization = get_object_or_404(Organization, pk=organization_pk)
+        
+        # Ensure user has permission to add members to this organization
+        user = self.request.user
+        if organization.owner != user:
+            # Check if user has manage_members permission
+            from organization.models import OrganizationMember as OrgMember
+            membership = OrgMember.objects.filter(user=user, organization=organization).first()
+            if not membership:
+                raise serializers.ValidationError("You don't have permission to add members to this organization.")
+        
+        # Set organization and ensure new memberships don't automatically become active session
+        serializer.save(organization=organization, is_session_active=False)
+
 
 class OrganizationViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
@@ -19,14 +140,40 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             return Organization.objects.none()
         
         user = self.request.user
-        # Show Organizations where:
-        # 1. User is the OWNER (Creator) OR MEMBER
-        # 2. AND the user has an ACTIVE SESSION in that organization
-        return Organization.objects.filter(
-            members__user=user,
-            members__is_session_active=True
+        # Show Organizations where user is OWNER or MEMBER (all memberships, not just active session)
+        # This allows user to see all organizations they belong to for switching
+        return Organization.objects.select_related('owner').prefetch_related(
+            'members__user'
+        ).filter(
+            Q(owner=user) | Q(members__user=user)
         ).distinct()
 
+    @action(detail=False, methods=['get'], url_path='current')
+    def current(self, request):
+        """
+        Get the current active organization for the authenticated user.
+        GET /api/organizations/current/
+        """
+        user = request.user
+        
+        # Get active organization membership
+        active_membership = OrganizationMember.objects.select_related(
+            'organization', 'organization__owner'
+        ).filter(
+            user=user,
+            is_session_active=True
+        ).first()
+        
+        if not active_membership:
+            return Response(
+                {"error": "No active organization session found"},
+                status=status.HTTP_404_NOT_FOUND
+            )
+        
+        serializer = OrganizationSerializer(active_membership.organization, context={'request': request})
+        return Response(serializer.data)
+
+    @transaction.atomic
     def perform_create(self, serializer):
         user = self.request.user
         if 'owner' not in serializer.validated_data:
@@ -37,82 +184,11 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         # AUTOMATICALLY CREATE MEMBERSHIP FOR OWNER
         member, created = OrganizationMember.objects.get_or_create(user=user, organization=org)
         
-        # SET AS ACTIVE SESSION (and deactivate others)
+        # SET AS ACTIVE SESSION (atomic operation - deactivate others and activate this one)
         OrganizationMember.objects.filter(user=user).update(is_session_active=False)
+        member.refresh_from_db()
         member.is_session_active = True
-        member.save()
+        member.save(update_fields=['is_session_active'])
 
 
-class OrganizationMemberViewSet(viewsets.ModelViewSet):
-    permission_classes = [IsAuthenticated, CanManageOrganizationMembers]
-    serializer_class = OrganizationMemberSerializer
-
-    def get_queryset(self):
-        if getattr(self, 'swagger_fake_view', False) or isinstance(self.request.user, AnonymousUser):
-            return OrganizationMember.objects.none()
-        
-        user = self.request.user
-        # Show members of the organization where the user currently has an ACTIVE SESSION
-        return OrganizationMember.objects.filter(
-            organization__members__user=user,
-            organization__members__is_session_active=True
-        ).distinct()
-
-    def get_permissions(self):
-        """
-        Override permissions to allow users to switch session and view their own memberships
-        without needing managerial permissions.
-        """
-        if self.action in ['switch_session', 'my_memberships']:
-            return [IsAuthenticated()]
-        return super().get_permissions()
-    
-    def perform_create(self, serializer):
-        # Permission logic is now handled by CanManageOrganizationMembers
-        # Ensure new memberships do not automatically become the active session
-        serializer.save(is_session_active=False)
-
-    @action(detail=True, methods=['post'], url_path='switch-session')
-    def switch_session(self, request, pk=None):
-        """
-        Custom action to switch the user's active session to this organization.
-        """
-        # Note: We cannot use self.get_object() here if the queryset filters out inactive sessions!
-        # Implementation Detail:
-        # We need to fetch the membership explicitly regardless of session state, 
-        # but STRICTLY ensure it belongs to the request.user.
-        from django.shortcuts import get_object_or_404
-        
-        # 1. Fetch membership ensuring it belongs to the user (security check)
-        membership = get_object_or_404(OrganizationMember, pk=pk, user=request.user)
-
-        # 2. Deactivate all other sessions for this user
-        OrganizationMember.objects.filter(user=request.user).update(is_session_active=False)
-        
-        # 3. Activate this session
-        membership.is_session_active = True
-        membership.save()
-
-        # 4. Generate New Tokens
-        # We MUST use our custom serializer to ensuring all claims (org_id, roles) are included.
-        from authentication.serializers import MyTokenObtainPairSerializer
-        
-        # get_token() returns a RefreshToken object with our custom claims
-        refresh = MyTokenObtainPairSerializer.get_token(request.user)
-
-        return Response({
-            "status": "Session switched to " + membership.organization.name,
-            "access": str(refresh.access_token),
-            "refresh": str(refresh)
-        })
-
-    @action(detail=False, methods=['get'], url_path='mine')
-    def my_memberships(self, request):
-        """
-        List ALL memberships for the current user (Active and Inactive).
-        Use this to populate the "Switch Organization" dropdown.
-        """
-        memberships = OrganizationMember.objects.filter(user=request.user)
-        serializer = self.get_serializer(memberships, many=True)
-        return Response(serializer.data)
 

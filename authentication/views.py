@@ -59,7 +59,7 @@ class RegisterView(APIView):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
 
             # Emit signal to log the registration asynchronously
             user_registered.send(

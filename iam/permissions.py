@@ -16,16 +16,35 @@ class HasOrganizationPermission(permissions.BasePermission):
         # 1. Try to get from object if available
         if obj:
             if hasattr(obj, 'organization'):
-                return obj.organization
+                org = obj.organization
+                # Validate user has access
+                if self._user_has_org_access(request.user, org):
+                    return org
+                return None
             if hasattr(obj, 'organization_member'):
-                return obj.organization_member.organization
+                org = obj.organization_member.organization
+                if self._user_has_org_access(request.user, org):
+                    return org
+                return None
         
         # 2. Try to get from request data (for create actions)
-        if 'organization' in request.data:
+        # Handle both dict and QueryDict formats
+        org_id = None
+        if hasattr(request.data, 'get'):
+            # QueryDict or dict with .get() method
+            org_id = request.data.get('organization')
+        elif isinstance(request.data, dict) and 'organization' in request.data:
+            org_id = request.data['organization']
+        
+        if org_id:
             from organization.models import Organization
             try:
-                return Organization.objects.get(pk=request.data['organization'])
-            except Organization.DoesNotExist:
+                org = Organization.objects.get(pk=org_id)
+                # SECURITY: Validate user has access to this organization
+                if not self._user_has_org_access(request.user, org):
+                    return None
+                return org
+            except (Organization.DoesNotExist, ValueError, TypeError):
                 return None
         
         # 3. For UserRole/UserPermission creation, we get org via 'organization_member'
@@ -33,11 +52,39 @@ class HasOrganizationPermission(permissions.BasePermission):
             from organization.models import OrganizationMember
             try:
                 member = OrganizationMember.objects.get(pk=request.data['organization_member'])
-                return member.organization
+                # SECURITY: Validate user has access to this member's organization
+                org = member.organization
+                if not self._user_has_org_access(request.user, org):
+                    return None
+                return org
             except OrganizationMember.DoesNotExist:
                 return None
+        
+        # 4. Fallback: For owner, try to get from active organization session
+        # This allows owner to manage IAM even if organization not explicitly provided
+        from organization.models import OrganizationMember
+        active_membership = OrganizationMember.objects.filter(
+            user=request.user,
+            is_session_active=True
+        ).select_related('organization').first()
+        
+        if active_membership:
+            org = active_membership.organization
+            # Owner can always manage their organization
+            if org.owner == request.user:
+                return org
+            # For members, only return if they have access
+            if self._user_has_org_access(request.user, org):
+                return org
                 
         return None
+    
+    def _user_has_org_access(self, user, org):
+        """Check if user has access to organization (owner or member)"""
+        if org.owner == user:
+            return True
+        from organization.models import OrganizationMember
+        return OrganizationMember.objects.filter(user=user, organization=org).exists()
 
     def has_permission(self, request, view):
         # We only check permissions on modification requests generally,
@@ -50,15 +97,30 @@ class HasOrganizationPermission(permissions.BasePermission):
             
         # For create actions, we need to check here because there is no 'obj' yet.
         if request.method == 'POST':
+            # First, try to get organization from request data or active session
             org = self.get_organization(request, view)
-            if not org:
-                # If we can't determine organization, strict deny or allow if global?
-                # For now, if we can't find org, we can't check perms.
-                # However, some views might allow global creation (e.g. creating an Org).
-                # But this class is for Org-Scoped permissions.
-                return False 
             
-            return self._check_org_permission(request.user, org)
+            # If organization found, check if user is owner (bypass all checks)
+            if org:
+                if org.owner == request.user:
+                    return True
+                return self._check_org_permission(request.user, org)
+            
+            # If organization not found, check if user is owner of active organization
+            # This handles cases where organization might not be in request.data yet
+            # (e.g., serializer will set it, but permission check happens first)
+            from organization.models import OrganizationMember
+            active_membership = OrganizationMember.objects.filter(
+                user=request.user,
+                is_session_active=True
+            ).select_related('organization', 'organization__owner').first()
+            
+            if active_membership and active_membership.organization.owner == request.user:
+                # Owner of active organization - allow all operations
+                return True
+            
+            # If we can't determine organization and user is not owner of active org, deny
+            return False
             
         return True
 
@@ -74,7 +136,7 @@ class HasOrganizationPermission(permissions.BasePermission):
         return self._check_org_permission(request.user, org)
 
     def _check_org_permission(self, user, org):
-        # 1. Check Owner
+        # 1. Check Owner - Owner has full access to all operations
         if org.owner == user:
             return True
             

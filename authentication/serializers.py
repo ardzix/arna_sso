@@ -27,45 +27,60 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     def get_token(cls, user):
         token = super().get_token(user)
 
-        # 1. Find the Active Session
-        # 1. Find the Active Session
-        # Use filter().first() to avoid MultipleObjectsReturned error
-        member = OrganizationMember.objects.filter(user=user, is_session_active=True).first()
-        
-        if member:
-            # 2. Add Organization ID
-            member.organization.refresh_from_db() # Ensure we have latest data
-            token['org_id'] = str(member.organization.id)
-            token['org_name'] = member.organization.name
+        try:
+            # Optimize query dengan select_related dan prefetch_related untuk avoid N+1 queries
+            member = OrganizationMember.objects.select_related(
+                'organization', 'organization__owner'
+            ).prefetch_related(
+                'userrole_set__role',
+                'userrole_set__role__permissions',
+                'userpermission_set__permissions'
+            ).filter(
+                user=user, 
+                is_session_active=True
+            ).first()
             
-            # 3. Add Roles
-            # UserRole links OrganizationMember to Role
-            roles = list(member.userrole_set.values_list('role__name', flat=True))
-            token['roles'] = roles
-            
-            # 4. Add Permissions
-            permissions = set()
-            
-            # 4a. Permissions from Roles
-            role_permissions = Permission.objects.filter(roles__userrole__organization_member=member).values_list('name', flat=True)
-            permissions.update(role_permissions)
-            
-            # 4b. Direct Permissions
-            # UserPermission links OrganizationMember to Permission (via M2M permissions field)
-            direct_permissions = Permission.objects.filter(direct_members__organization_member=member).values_list('name', flat=True)
-            permissions.update(direct_permissions)
-            
-            token['permissions'] = list(permissions)
-            
-            # 5. Add Owner Flag
-            # Check if this user is the owner of the organization
-            try:
+            if member and member.organization:
+                token['org_id'] = str(member.organization.id)
+                token['org_name'] = member.organization.name
+                
+                # Get roles (already prefetched)
+                try:
+                    roles = [ur.role.name for ur in member.userrole_set.all()]
+                except Exception:
+                    roles = []
+                token['roles'] = roles
+                
+                # Get permissions (already prefetched)
+                permissions = set()
+                try:
+                    # Permissions from roles
+                    for ur in member.userrole_set.all():
+                        for perm in ur.role.permissions.all():
+                            permissions.add(perm.name)
+                    
+                    # Direct permissions
+                    for up in member.userpermission_set.all():
+                        for perm in up.permissions.all():
+                            permissions.add(perm.name)
+                except Exception:
+                    permissions = set()
+                
+                token['permissions'] = list(permissions)
                 token['is_owner'] = (member.organization.owner_id == user.id)
-            except AttributeError:
+            else:
+                # Handle user with no active session (maybe new user or just created)
+                token['org_id'] = None
+                token['roles'] = []
+                token['permissions'] = []
                 token['is_owner'] = False
+        except Exception as e:
+            # Log error but don't fail token generation
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Error generating token claims for user {user.id}: {str(e)}", exc_info=True)
             
-        else:
-            # Handle user with no active session (maybe new user or just created)
+            # Return token with empty org context
             token['org_id'] = None
             token['roles'] = []
             token['permissions'] = []

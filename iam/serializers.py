@@ -1,10 +1,47 @@
 from rest_framework import serializers
+from django.db.models import Q
 from .models import Role, Permission, UserRole, UserPermission
 
 class PermissionSerializer(serializers.ModelSerializer):
+    organization_name = serializers.ReadOnlyField(source='organization.name')
+    organization = serializers.PrimaryKeyRelatedField(read_only=True)
+
     class Meta:
         model = Permission
-        fields = ['id', 'name', 'description']
+        fields = ['id', 'name', 'description', 'organization', 'organization_name']
+        read_only_fields = ['organization']
+    
+    def to_internal_value(self, data):
+        # Remove organization from data if present - it will be auto-set from active session
+        if isinstance(data, dict):
+            data = data.copy()
+            data.pop('organization', None)
+        return super().to_internal_value(data)
+    
+    def create(self, validated_data):
+        # Always set organization from active session - cannot be overridden
+        # Remove organization from validated_data if somehow it got through
+        validated_data.pop('organization', None)
+        
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            from organization.models import OrganizationMember
+            active_membership = OrganizationMember.objects.filter(
+                user=request.user,
+                is_session_active=True
+            ).select_related('organization').first()
+            
+            if active_membership:
+                validated_data['organization'] = active_membership.organization
+            else:
+                raise serializers.ValidationError({
+                    'organization': 'No active organization session found. Please switch to an organization first.'
+                })
+        else:
+            raise serializers.ValidationError({
+                'organization': 'Authentication required.'
+            })
+        return super().create(validated_data)
 
 class RoleSerializer(serializers.ModelSerializer):
     # Tampilkan detail permission, bukan cuma ID-nya
@@ -15,34 +52,219 @@ class RoleSerializer(serializers.ModelSerializer):
     )
 
     organization_name = serializers.ReadOnlyField(source='organization.name')
+    organization = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model = Role
         fields = ['id', 'name', 'description', 'organization', 'organization_name', 'permissions', 'permission_ids']
-        # organization removed from read_only_fields to allow custom role creation
-        read_only_fields = [] 
-
+        read_only_fields = ['organization']
+    
+    def to_internal_value(self, data):
+        # Remove organization from data if present - it will be auto-set from active session
+        if isinstance(data, dict):
+            data = data.copy()
+            data.pop('organization', None)
+        return super().to_internal_value(data)
+    
     def create(self, validated_data):
+        # Always set organization from active session - cannot be overridden
+        # Remove organization from validated_data if somehow it got through
+        validated_data.pop('organization', None)
+        
+        request = self.context.get('request')
+        if request and hasattr(request, 'user') and request.user.is_authenticated:
+            from organization.models import OrganizationMember
+            active_membership = OrganizationMember.objects.filter(
+                user=request.user,
+                is_session_active=True
+            ).select_related('organization').first()
+            
+            if active_membership:
+                validated_data['organization'] = active_membership.organization
+            else:
+                raise serializers.ValidationError({
+                    'organization': 'No active organization session found. Please switch to an organization first.'
+                })
+        else:
+            raise serializers.ValidationError({
+                'organization': 'Authentication required.'
+            })
+        
         # Extract permission_ids list from input (it's not a direct model field)
         perm_ids = validated_data.pop('permission_ids', [])
         
-        # 1. Create the Role instance first (in iam_role table)
-        role = Role.objects.create(**validated_data)
+        # Get organization that will be used (from active session)
+        role_org = validated_data.get('organization')
+        if not role_org:
+            raise serializers.ValidationError({
+                'organization': ['Organization is required.']
+            })
+        
+        # Validate permission_ids BEFORE creating role
+        if perm_ids:
+            try:
+                # Get all permissions that exist
+                permissions = Permission.objects.filter(id__in=perm_ids).select_related('organization')
+                found_permissions = {str(p.id): p for p in permissions}
+                requested_ids = [str(pid) for pid in perm_ids]
+                
+                # Check if all requested permissions exist
+                missing_ids = [pid for pid in requested_ids if pid not in found_permissions]
+                if missing_ids:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
+                    })
+                
+                # Validate permissions belong to same organization
+                invalid_perms = []
+                for perm_id_str, perm in found_permissions.items():
+                    # Permission must belong to the same organization as role
+                    # No global permissions allowed - all permissions are organization-specific
+                    if perm.organization != role_org:
+                        invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
+                
+                if invalid_perms:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Permissions must belong to the same organization as the role. Invalid: {', '.join(invalid_perms)}"]
+                    })
+            except serializers.ValidationError:
+                # Re-raise ValidationError as-is (already formatted correctly)
+                raise
+            except (ValueError, TypeError) as e:
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Invalid permission ID format: {str(e)}"]
+                })
+            except Exception as e:
+                # For other exceptions, extract clean error message
+                error_msg = str(e)
+                if isinstance(e, serializers.ValidationError):
+                    if hasattr(e, 'detail'):
+                        if isinstance(e.detail, dict):
+                            # Extract first error message from dict
+                            for key, value in e.detail.items():
+                                if isinstance(value, list):
+                                    error_msg = value[0] if value else str(e)
+                                else:
+                                    error_msg = str(value)
+                                break
+                        else:
+                            error_msg = str(e.detail)
+                    else:
+                        error_msg = str(e)
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Error validating permissions: {error_msg}"]
+                })
+        
+        # 1. Create the Role instance (all validations passed)
+        try:
+            role = Role.objects.create(**validated_data)
+        except Exception as e:
+            raise serializers.ValidationError({
+                'non_field_errors': [f"Error creating role: {str(e)}"]
+            })
         
         # 2. If permissions are provided, set the Many-to-Many relation
-        # This populates the hidden iam_role_permissions table
         if perm_ids:
-            role.permissions.set(perm_ids)
+            try:
+                role.permissions.set(perm_ids)
+            except Exception as e:
+                # Rollback role creation if setting permissions fails
+                try:
+                    role.delete()
+                except:
+                    pass
+                # Extract clean error message
+                error_msg = str(e)
+                if isinstance(e, serializers.ValidationError):
+                    if hasattr(e, 'detail'):
+                        if isinstance(e.detail, dict):
+                            # Extract first error message from dict
+                            for key, value in e.detail.items():
+                                if isinstance(value, list):
+                                    error_msg = value[0] if value else str(e)
+                                else:
+                                    error_msg = str(value)
+                                break
+                        else:
+                            error_msg = str(e.detail)
+                    else:
+                        error_msg = str(e)
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Error setting permissions: {error_msg}"]
+                })
         return role
 
     def update(self, instance, validated_data):
         perm_ids = validated_data.pop('permission_ids', None)
+        
+        # Organization cannot be changed - always use instance's organization
+        # Remove organization from validated_data if present (should not be, but safety check)
+        validated_data.pop('organization', None)
+        
         instance.name = validated_data.get('name', instance.name)
         instance.description = validated_data.get('description', instance.description)
         instance.save()
         
         if perm_ids is not None:
-            instance.permissions.set(perm_ids)
+            # Validate all permission IDs exist
+            if perm_ids:
+                # Get all permissions that exist
+                permissions = Permission.objects.filter(id__in=perm_ids)
+                found_ids = set(str(p.id) for p in permissions)
+                requested_ids = set(str(pid) for pid in perm_ids)
+                
+                # Check if all requested permissions exist
+                missing_ids = requested_ids - found_ids
+                if missing_ids:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
+                    })
+                
+                # Validate permissions belong to same organization
+                role_org = instance.organization
+                invalid_perms = []
+                for perm in permissions:
+                    # Permission must belong to the same organization as role
+                    # No global permissions allowed - all permissions are organization-specific
+                    if perm.organization != role_org:
+                        invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
+                
+                if invalid_perms:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Permissions must belong to the same organization as the role. Invalid: {', '.join(invalid_perms)}"]
+                    })
+                
+                # All validations passed, set permissions
+                try:
+                    instance.permissions.set(perm_ids)
+                except Exception as e:
+                    # Extract clean error message
+                    error_msg = str(e)
+                    if isinstance(e, serializers.ValidationError):
+                        if hasattr(e, 'detail'):
+                            if isinstance(e.detail, dict):
+                                # Extract first error message from dict
+                                for key, value in e.detail.items():
+                                    if isinstance(value, list):
+                                        error_msg = value[0] if value else str(e)
+                                    else:
+                                        error_msg = str(value)
+                                    break
+                            else:
+                                error_msg = str(e.detail)
+                        else:
+                            error_msg = str(e)
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Error setting permissions: {error_msg}"]
+                    })
+            else:
+                # Empty list - clear all permissions
+                try:
+                    instance.permissions.clear()
+                except Exception as e:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Error clearing permissions: {str(e)}"]
+                    })
             
         return instance
 
@@ -61,14 +283,13 @@ class UserRoleSerializer(serializers.ModelSerializer):
         member = data['organization_member']
         role = data['role']
         
-        # Check if role is custom (has organization)
-        if role.organization:
-            # SECURITY CHECK:
-            # Ensure the organization_member actually belongs to the SAME organization as the role.
-            if member.organization != role.organization:
-                 raise serializers.ValidationError(
-                    f"Membership (Org: {member.organization.name}) does not match Role Organization ({role.organization.name}). Cannot assign this role."
-                )
+        # SECURITY CHECK:
+        # All roles are organization-specific - ensure the organization_member 
+        # belongs to the SAME organization as the role.
+        if member.organization != role.organization:
+            raise serializers.ValidationError(
+                f"Membership (Org: {member.organization.name}) does not match Role Organization ({role.organization.name}). Cannot assign this role."
+            )
         return data
 
 
@@ -108,13 +329,120 @@ class UserPermissionSerializer(serializers.ModelSerializer):
     def create(self, validated_data):
         perm_ids = validated_data.pop('permission_ids', [])
         instance = UserPermission.objects.create(**validated_data)
+        
         if perm_ids:
-            instance.permissions.set(perm_ids)
+            # Validate all permission IDs exist
+            permissions = Permission.objects.filter(id__in=perm_ids)
+            found_ids = set(str(p.id) for p in permissions)
+            requested_ids = set(str(pid) for pid in perm_ids)
+            
+            # Check if all requested permissions exist
+            missing_ids = requested_ids - found_ids
+            if missing_ids:
+                raise serializers.ValidationError({
+                    'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
+                })
+            
+            # Validate permissions belong to same organization
+            member_org = instance.organization_member.organization
+            invalid_perms = []
+            for perm in permissions:
+                # Permission must belong to the same organization as member
+                # No global permissions allowed - all permissions are organization-specific
+                if perm.organization != member_org:
+                    invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
+            
+            if invalid_perms:
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Permissions must belong to the same organization as the member. Invalid: {', '.join(invalid_perms)}"]
+                })
+            
+            # All validations passed, set permissions
+            try:
+                instance.permissions.set(perm_ids)
+            except Exception as e:
+                # Extract clean error message
+                error_msg = str(e)
+                if isinstance(e, serializers.ValidationError):
+                    if hasattr(e, 'detail'):
+                        if isinstance(e.detail, dict):
+                            # Extract first error message from dict
+                            for key, value in e.detail.items():
+                                if isinstance(value, list):
+                                    error_msg = value[0] if value else str(e)
+                                else:
+                                    error_msg = str(value)
+                                break
+                        else:
+                            error_msg = str(e.detail)
+                    else:
+                        error_msg = str(e)
+                raise serializers.ValidationError({
+                    'permission_ids': [f"Error setting permissions: {error_msg}"]
+                })
         return instance
 
     def update(self, instance, validated_data):
         perm_ids = validated_data.pop('permission_ids', None)
         if perm_ids is not None:
-            instance.permissions.set(perm_ids)
+            # Validate all permission IDs exist
+            if perm_ids:
+                # Get all permissions that exist
+                permissions = Permission.objects.filter(id__in=perm_ids)
+                found_ids = set(str(p.id) for p in permissions)
+                requested_ids = set(str(pid) for pid in perm_ids)
+                
+                # Check if all requested permissions exist
+                missing_ids = requested_ids - found_ids
+                if missing_ids:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"One or more permissions not found: {', '.join(missing_ids)}"]
+                    })
+                
+                # Validate permissions belong to same organization
+                member_org = instance.organization_member.organization
+                invalid_perms = []
+                for perm in permissions:
+                    # Permission must belong to the same organization as member
+                    # No global permissions allowed - all permissions are organization-specific
+                    if perm.organization != member_org:
+                        invalid_perms.append(f"'{perm.name}' (org: {perm.organization.name})")
+                
+                if invalid_perms:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Permissions must belong to the same organization as the member. Invalid: {', '.join(invalid_perms)}"]
+                    })
+                
+                # All validations passed, set permissions
+                try:
+                    instance.permissions.set(perm_ids)
+                except Exception as e:
+                    # Extract clean error message
+                    error_msg = str(e)
+                    if isinstance(e, serializers.ValidationError):
+                        if hasattr(e, 'detail'):
+                            if isinstance(e.detail, dict):
+                                # Extract first error message from dict
+                                for key, value in e.detail.items():
+                                    if isinstance(value, list):
+                                        error_msg = value[0] if value else str(e)
+                                    else:
+                                        error_msg = str(value)
+                                    break
+                            else:
+                                error_msg = str(e.detail)
+                        else:
+                            error_msg = str(e)
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Error setting permissions: {error_msg}"]
+                    })
+            else:
+                # Empty list - clear all permissions
+                try:
+                    instance.permissions.clear()
+                except Exception as e:
+                    raise serializers.ValidationError({
+                        'permission_ids': [f"Error clearing permissions: {str(e)}"]
+                    })
         return super().update(instance, validated_data)
 
