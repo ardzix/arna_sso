@@ -43,6 +43,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
             if member and member.organization:
                 token['org_id'] = str(member.organization.id)
                 token['org_name'] = member.organization.name
+                token['mfa_enabled'] = bool(user.mfa_secret)
                 
                 # Get roles (already prefetched)
                 try:
@@ -74,6 +75,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
                 token['roles'] = []
                 token['permissions'] = []
                 token['is_owner'] = False
+                token['mfa_enabled'] = bool(user.mfa_secret)
         except Exception as e:
             # Log error but don't fail token generation
             import logging
@@ -85,6 +87,7 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
             token['roles'] = []
             token['permissions'] = []
             token['is_owner'] = False
+            token['mfa_enabled'] = bool(user.mfa_secret)
 
         return token
 

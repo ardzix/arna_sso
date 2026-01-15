@@ -235,6 +235,37 @@ class SetMFAView(APIView):
         )
 
 
+class DisableMFAView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Disable MFA for the user.",
+        responses={
+            200: openapi.Response(
+                description="MFA disabled successfully",
+                examples={
+                    "application/json": {
+                        "message": "MFA has been disabled.",
+                    }
+                },
+            ),
+        },
+    )
+    def post(self, request):
+        user = request.user
+        user.mfa_secret = None
+        user.mfa_enabled = False
+        user.save()
+
+        # Emit signal (optional, but good practice for audit logs if we had them here)
+        # For now just return success
+
+        return Response(
+            {"message": "MFA has been disabled."},
+            status=status.HTTP_200_OK
+        )
+
+
 class MFAAwareLoginView(APIView):
     @swagger_auto_schema(
         operation_description="Handle MFA-aware login. Prompt for MFA if enabled.",

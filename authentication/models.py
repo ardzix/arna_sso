@@ -55,6 +55,7 @@ class User(AbstractBaseUser, PermissionsMixin):
     def generate_mfa_secret(self):
         """Generate a new MFA secret for the user."""
         self.mfa_secret = pyotp.random_base32()
+        self.mfa_enabled = True
         self.save()
 
     def verify_mfa(self, token):
