@@ -7,6 +7,10 @@ class OrganizationSerializer(serializers.ModelSerializer):
         fields = ['id', 'name', 'owner', 'package_type', 'created_at', 'updated_at']
         read_only_fields = ['id', 'created_at', 'updated_at', 'owner'] # Owner removed from Read Only
 
+class SetCurrentOrganizationSerializer(serializers.Serializer):
+    """Serializer for POST /api/organizations/current/"""
+    organization_id = serializers.UUIDField(required=True, help_text="UUID of the organization to set as current")
+
 class OrganizationMemberSerializer(serializers.ModelSerializer):
     user_name = serializers.ReadOnlyField(source='user.email')
     organization_name = serializers.ReadOnlyField(source='organization.name')

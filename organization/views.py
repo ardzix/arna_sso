@@ -6,8 +6,10 @@ from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
 from django.db import transaction
 from django.shortcuts import get_object_or_404
+from drf_yasg.utils import swagger_auto_schema
+from drf_yasg import openapi
 from .models import Organization, OrganizationMember
-from .serializers import OrganizationSerializer, OrganizationMemberSerializer
+from .serializers import OrganizationSerializer, OrganizationMemberSerializer, SetCurrentOrganizationSerializer
 from iam.permissions import CanManageOrganizationMembers
 
 class OrganizationMemberViewSet(viewsets.ModelViewSet):
@@ -148,30 +150,115 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             Q(owner=user) | Q(members__user=user)
         ).distinct()
 
-    @action(detail=False, methods=['get'], url_path='current')
+    @swagger_auto_schema(
+        method='post',
+        request_body=SetCurrentOrganizationSerializer,
+        responses={
+            200: openapi.Response(
+                description="Organization switched successfully",
+                schema=openapi.Schema(
+                    type=openapi.TYPE_OBJECT,
+                    properties={
+                        'id': openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_UUID),
+                        'name': openapi.Schema(type=openapi.TYPE_STRING),
+                        'package_type': openapi.Schema(type=openapi.TYPE_STRING),
+                        'status': openapi.Schema(type=openapi.TYPE_STRING),
+                        'access': openapi.Schema(type=openapi.TYPE_STRING),
+                        'refresh': openapi.Schema(type=openapi.TYPE_STRING),
+                    }
+                )
+            ),
+            400: "Bad request - organization_id is required",
+            403: "Forbidden - user is not a member of this organization",
+            404: "Organization not found",
+        },
+        operation_summary="Set current organization",
+        operation_description="Switch the active organization session by providing organization_id"
+    )
+    @swagger_auto_schema(
+        method='get',
+        responses={
+            200: OrganizationSerializer,
+            404: "No active organization session found"
+        },
+        operation_summary="Get current organization",
+        operation_description="Get the current active organization for the authenticated user"
+    )
+    @action(detail=False, methods=['get', 'post'], url_path='current')
     def current(self, request):
         """
-        Get the current active organization for the authenticated user.
+        GET: Get the current active organization for the authenticated user.
+        POST: Set the current active organization by providing organization_id in payload.
+        
         GET /api/organizations/current/
+        POST /api/organizations/current/ with payload: {"organization_id": "uuid"}
         """
         user = request.user
         
-        # Get active organization membership
-        active_membership = OrganizationMember.objects.select_related(
-            'organization', 'organization__owner'
-        ).filter(
-            user=user,
-            is_session_active=True
-        ).first()
+        if request.method == 'POST':
+            # POST: Set current organization
+            serializer = SetCurrentOrganizationSerializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            organization_id = serializer.validated_data['organization_id']
+            
+            # Get the organization
+            try:
+                organization = Organization.objects.get(pk=organization_id)
+            except Organization.DoesNotExist:
+                return Response(
+                    {"error": "Organization not found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            # Check if user is a member of this organization
+            membership = OrganizationMember.objects.filter(
+                user=user,
+                organization=organization
+            ).first()
+            
+            if not membership:
+                return Response(
+                    {"error": "You are not a member of this organization"},
+                    status=status.HTTP_403_FORBIDDEN
+                )
+            
+            # Atomic operation: Deactivate all other sessions and activate this one
+            with transaction.atomic():
+                OrganizationMember.objects.filter(user=user).update(is_session_active=False)
+                membership.refresh_from_db()
+                membership.is_session_active = True
+                membership.save(update_fields=['is_session_active'])
+            
+            # Generate New Tokens with updated org context
+            from authentication.serializers import MyTokenObtainPairSerializer
+            refresh = MyTokenObtainPairSerializer.get_token(user)
+            
+            # Return organization data along with new tokens
+            serializer = OrganizationSerializer(organization, context={'request': request})
+            return Response({
+                **serializer.data,
+                "status": "Session switched to " + organization.name,
+                "access": str(refresh.access_token),
+                "refresh": str(refresh)
+            }, status=status.HTTP_200_OK)
         
-        if not active_membership:
-            return Response(
-                {"error": "No active organization session found"},
-                status=status.HTTP_404_NOT_FOUND
-            )
-        
-        serializer = OrganizationSerializer(active_membership.organization, context={'request': request})
-        return Response(serializer.data)
+        else:
+            # GET: Get current active organization
+            active_membership = OrganizationMember.objects.select_related(
+                'organization', 'organization__owner'
+            ).filter(
+                user=user,
+                is_session_active=True
+            ).first()
+            
+            if not active_membership:
+                return Response(
+                    {"error": "No active organization session found"},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+            
+            serializer = OrganizationSerializer(active_membership.organization, context={'request': request})
+            return Response(serializer.data)
 
     def create(self, request, *args, **kwargs):
         """
