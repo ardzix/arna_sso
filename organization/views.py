@@ -173,22 +173,41 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         serializer = OrganizationSerializer(active_membership.organization, context={'request': request})
         return Response(serializer.data)
 
-    @transaction.atomic
-    def perform_create(self, serializer):
-        user = self.request.user
-        if 'owner' not in serializer.validated_data:
-            org = serializer.save(owner=user)
-        else:
-            org = serializer.save()
+    def create(self, request, *args, **kwargs):
+        """
+        Create organization and automatically make owner a member with active session.
+        Returns new JWT tokens with updated org context.
+        """
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
         
-        # AUTOMATICALLY CREATE MEMBERSHIP FOR OWNER
-        member, created = OrganizationMember.objects.get_or_create(user=user, organization=org)
+        with transaction.atomic():
+            user = request.user
+            if 'owner' not in serializer.validated_data:
+                org = serializer.save(owner=user)
+            else:
+                org = serializer.save()
+            
+            # AUTOMATICALLY CREATE MEMBERSHIP FOR OWNER
+            member, created = OrganizationMember.objects.get_or_create(user=user, organization=org)
+            
+            # SET AS ACTIVE SESSION (atomic operation - deactivate others and activate this one)
+            OrganizationMember.objects.filter(user=user).update(is_session_active=False)
+            member.refresh_from_db()
+            member.is_session_active = True
+            member.save(update_fields=['is_session_active'])
         
-        # SET AS ACTIVE SESSION (atomic operation - deactivate others and activate this one)
-        OrganizationMember.objects.filter(user=user).update(is_session_active=False)
-        member.refresh_from_db()
-        member.is_session_active = True
-        member.save(update_fields=['is_session_active'])
+        # Generate New Tokens with updated org context
+        from authentication.serializers import MyTokenObtainPairSerializer
+        refresh = MyTokenObtainPairSerializer.get_token(user)
+        
+        # Return organization data along with new tokens
+        response_serializer = self.get_serializer(org)
+        return Response({
+            **response_serializer.data,
+            "access": str(refresh.access_token),
+            "refresh": str(refresh)
+        }, status=status.HTTP_201_CREATED)
 
 
 
