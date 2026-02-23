@@ -173,7 +173,18 @@ REST_FRAMEWORK = {
     ],
     'DEFAULT_PERMISSION_CLASSES': [
         'rest_framework.permissions.AllowAny',
-    ]
+    ],
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
+        'rest_framework.throttling.UserRateThrottle',
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'anon': '100/day',
+        'user': '1000/day',
+        'mfa_verify': '5/minute',  # Strict limit for MFA
+        'login_attempt': '10/minute',  # Strict limit for Login
+    }
 }
 
 # JWT Configuration
@@ -191,14 +202,15 @@ except FileNotFoundError:
     public_key = 'BUILD_KEY'
 
 SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('ACCESS_TOKEN_LIFETIME_MINUTES', 5))),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=int(os.getenv('REFRESH_TOKEN_LIFETIME_DAYS', 1))),
     'ROTATE_REFRESH_TOKENS': True,
     'BLACKLIST_AFTER_ROTATION': True,
     'AUTH_HEADER_TYPES': ('Bearer',),
     'ALGORITHM': 'RS256',  
     'SIGNING_KEY': private_key,  
-    'VERIFYING_KEY': public_key, 
+    'VERIFYING_KEY': public_key,
+    'PRE_AUTH_TOKEN_LIFETIME': timedelta(minutes=int(os.getenv('PRE_AUTH_TOKEN_LIFETIME_MINUTES', 5))),
 }
 
 Q_CLUSTER = {
