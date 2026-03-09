@@ -14,12 +14,15 @@ from iam.permissions import CanManageOrganizationMembers
 
 class OrganizationMemberViewSet(viewsets.ModelViewSet):
     """
-    Nested ViewSet for managing members of a specific organization.
-    Accessible via: /api/organizations/{organization_pk}/members/
-    
-    Special behavior:
-    - POST without payload: Switch active session to this organization
-    - POST with payload: Create new member in this organization
+    Nested ViewSet for managing organization members.
+    URL: /api/organizations/{organization_pk}/members/
+
+    **Create member (POST with payload):**
+    - Parameter `user` accepts: UUID, email, or phone number
+    - Example: {"user": "user@example.com"} or {"user": "08123456789"}
+
+    **Switch session (POST without payload):**
+    - Switch active session to this organization
     """
     permission_classes = [IsAuthenticated]
     serializer_class = OrganizationMemberSerializer
@@ -59,6 +62,41 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
             'user', 'organization', 'organization__owner'
         ).filter(organization=organization)
 
+    @swagger_auto_schema(
+        operation_description="""
+        Add a new member to the organization.
+
+        **Special behavior:**
+        - **POST without payload**: Switch active session to this organization (see organization_pk in URL)
+        - **POST with payload**: Create new member
+
+        **Parameter `user`** accepts flexible formats:
+        - **UUID**: User ID (e.g. `a1b2c3d4-e5f6-7890-abcd-ef1234567890`)
+        - **Email**: User email address (e.g. `user@example.com`)
+        - **Phone**: Phone number (e.g. `08123456789`, `+628123456789`, `628123456789`)
+        """,
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            required=['user'],
+            properties={
+                'user': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description='User identifier. Can be: UUID (user id), email, or phone number. Example: "user@example.com", "08123456789", or UUID.',
+                    example='user@example.com',
+                ),
+                'organization': openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    format=openapi.FORMAT_UUID,
+                    description='Organization UUID (optional for nested route, taken from URL)',
+                ),
+            },
+        ),
+        responses={
+            201: openapi.Response('Member added successfully'),
+            400: 'Bad request - invalid data',
+            403: 'Forbidden - no permission or user is not a member (for switch session)',
+        },
+    )
     def create(self, request, *args, **kwargs):
         """
         Handle POST to /api/organizations/{id}/members/
