@@ -84,11 +84,6 @@ class OrganizationMemberViewSet(viewsets.ModelViewSet):
                     description='User identifier. Can be: UUID (user id), email, or phone number. Example: "user@example.com", "08123456789", or UUID.',
                     example='user@example.com',
                 ),
-                'organization': openapi.Schema(
-                    type=openapi.TYPE_STRING,
-                    format=openapi.FORMAT_UUID,
-                    description='Organization UUID (optional for nested route, taken from URL)',
-                ),
             },
         ),
         responses={

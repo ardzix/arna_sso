@@ -96,14 +96,5 @@ class OrganizationMemberSerializer(serializers.ModelSerializer):
     class Meta:
         model = OrganizationMember
         fields = ['id', 'user', 'user_name', 'organization', 'organization_name', 'joined_at', 'is_session_active']
-        read_only_fields = ['id', 'joined_at', 'is_session_active']
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        request = self.context.get('request')
-        if request and hasattr(request, 'user') and request.user.is_authenticated:
-            self.fields['organization'].queryset = Organization.objects.filter(
-                members__user=request.user,
-                members__is_session_active=True
-            ).distinct()
+        read_only_fields = ['id', 'organization', 'joined_at', 'is_session_active']
 
