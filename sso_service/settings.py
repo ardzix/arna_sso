@@ -160,9 +160,14 @@ AUTHENTICATION_BACKENDS = [
 ]
 
 import passkeys
-FIDO_SERVER_ID = "localhost"  # TODO: Change to your domain in production
-FIDO_SERVER_NAME = "Arna SSO"
-KEY_ATTACHMENT = passkeys.Attachment.CROSS_PLATFORM
+FIDO_SERVER_ID = os.getenv('FIDO_SERVER_ID', 'localhost')  # Must match the domain clients use
+FIDO_SERVER_NAME = os.getenv('FIDO_SERVER_NAME', 'Arna SSO')
+KEY_ATTACHMENT = None  # Allow both platform (Face ID/Windows Hello) AND cross-platform (YubiKey)
+
+# Session cookie settings so FIDO2 challenge survives begin→complete round-trip
+# (The session holds the challenge state between the two API calls)
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')  # Use 'None' for cross-origin prod
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'  # True in HTTPS prod
 
 SWAGGER_SETTINGS = {
     'USE_SESSION_AUTH': False,

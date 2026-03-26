@@ -31,6 +31,8 @@ from .passkeys_api_views import (
     PasskeyRegisterCompleteView,
     PasskeyLoginBeginView,
     PasskeyLoginCompleteView,
+    PasskeyListView,
+    PasskeyDeleteView,
 )
 
 urlpatterns = [
@@ -65,14 +67,13 @@ urlpatterns = [
     # Note: verify endpoints use the same as regular WA (WAVerifyLinkView, WARegisterVerifyView, WAVerifyOTPView)
     
     # Passkeys API Endpoints
+    # Registration (requires JWT Bearer token)
     path('passkeys/register/begin/', PasskeyRegisterBeginView.as_view(), name='passkey_register_begin'),
     path('passkeys/register/complete/', PasskeyRegisterCompleteView.as_view(), name='passkey_register_complete'),
+    # Login (no auth required — returns JWT on success, skips MFA)
     path('passkeys/login/begin/', PasskeyLoginBeginView.as_view(), name='passkey_login_begin'),
     path('passkeys/login/complete/', PasskeyLoginCompleteView.as_view(), name='passkey_login_complete'),
-    
-    # Check if user has passkeys enabled (optional utility)
-    # path('passkeys/check/', ..., name='passkey_check'),
-    
-    # Include standard passkeys urls if needed for other built-in features (e.g. key management)
-    # url(r'^passkeys/', include('passkeys.urls')),
+    # Key management (requires JWT)
+    path('passkeys/', PasskeyListView.as_view(), name='passkey_list'),
+    path('passkeys/<int:pk>/', PasskeyDeleteView.as_view(), name='passkey_delete'),
 ]
