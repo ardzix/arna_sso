@@ -2,43 +2,49 @@
 
 from django.conf import settings
 from django.db import migrations, models
-from django.db import connection
 
 
 def add_constraint_if_table_exists(apps, schema_editor):
     """
-    Safely add constraint only if the table exists.
-    This handles cases where migration 0001 hasn't been run yet.
+    Create OrganizationMember table if it doesn't exist, then add constraint.
+    This handles cases where migration 0001 partially failed or table is missing.
     """
-    db_alias = schema_editor.connection.alias
+    db_connection = schema_editor.connection
     
     # Check if table exists
     table_exists = False
-    with connection.cursor() as cursor:
-        if connection.vendor == 'postgresql':
-            cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_schema = 'public' 
-                    AND table_name = 'organization_organizationmember'
-                );
-            """)
-            table_exists = cursor.fetchone()[0]
-        elif connection.vendor == 'sqlite':
-            cursor.execute("""
-                SELECT name FROM sqlite_master 
-                WHERE type='table' AND name='organization_organizationmember';
-            """)
-            table_exists = cursor.fetchone() is not None
-        else:
-            # For other databases, assume table exists (will fail gracefully if not)
-            table_exists = True
+    try:
+        with db_connection.cursor() as cursor:
+            if db_connection.vendor == 'postgresql':
+                cursor.execute("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = 'organization_organizationmember'
+                    );
+                """)
+                table_exists = cursor.fetchone()[0]
+            elif db_connection.vendor == 'sqlite':
+                cursor.execute("""
+                    SELECT name FROM sqlite_master 
+                    WHERE type='table' AND name='organization_organizationmember';
+                """)
+                table_exists = cursor.fetchone() is not None
+            else:
+                table_exists = False
+    except Exception:
+        table_exists = False
     
+    # If table doesn't exist, create it first
     if not table_exists:
-        # Table doesn't exist yet, skip constraint addition
-        # It will be added when migration 0001 runs (if model includes it)
-        # or we can add it in a later migration
-        return
+        try:
+            OrganizationMember = apps.get_model('organization', 'OrganizationMember')
+            schema_editor.create_model(OrganizationMember)
+        except Exception as e:
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.error(f"Could not create OrganizationMember table: {str(e)}")
+            raise
     
     # Table exists, try to add constraint
     try:
@@ -46,8 +52,8 @@ def add_constraint_if_table_exists(apps, schema_editor):
         
         # Check if constraint already exists
         constraint_exists = False
-        if connection.vendor == 'postgresql':
-            with connection.cursor() as cursor:
+        if db_connection.vendor == 'postgresql':
+            with db_connection.cursor() as cursor:
                 cursor.execute("""
                     SELECT EXISTS (
                         SELECT FROM pg_constraint 
