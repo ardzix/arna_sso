@@ -211,7 +211,7 @@ class SetMFAView(APIView):
                 examples={
                     "application/json": {
                         "mfa_secret": "SECRET_CODE",
-                        "qr_code_url": "otpauth://totp/YourApp:testuser@example.com?secret=SECRET_CODE&issuer=YourApp",
+                        "qr_code_url": "otpauth://totp/Arna%20SSO:testuser@example.com?secret=SECRET_CODE&issuer=Arna%20SSO",
                     }
                 },
             )
@@ -230,7 +230,7 @@ class SetMFAView(APIView):
         return Response(
             {
                 "mfa_secret": user.mfa_secret,
-                "qr_code_url": totp.provisioning_uri(user.email, issuer_name="YourApp"),
+                "qr_code_url": totp.provisioning_uri(user.email, issuer_name="Arna SSO"),
             }
         )
 
@@ -654,7 +654,6 @@ class GoogleLoginView(APIView):
                         "mfa_required": True,
                         "message": "MFA is required. Please provide your MFA token.",
                         "token": pre_auth_token,
-                        "email": user.email,
                     },
                     status=status.HTTP_200_OK,
                 )
