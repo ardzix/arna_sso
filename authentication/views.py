@@ -113,11 +113,12 @@ class LoginView(TokenObtainPairView):
         response = super().post(request)
 
         if response.status_code == 200:
-            user = User.objects.get(email=request.data.get("email"))
-            # Emit signal to log login asynchronously
-            user_logged_in.send(
-                sender=self.__class__, user=user, metadata={"email": user.email}
-            )
+            user = User.objects.filter(email__iexact=request.data.get("email", "")).first()
+            if user:
+                # Emit signal to log login asynchronously
+                user_logged_in.send(
+                    sender=self.__class__, user=user, metadata={"email": user.email}
+                )
 
         return response
 
@@ -203,6 +204,8 @@ class RefreshTokenView(TokenRefreshView):
 
 
 class SetMFAView(APIView):
+    permission_classes = [IsAuthenticated]
+
     @swagger_auto_schema(
         operation_description="Set up MFA for the user and return the MFA secret and QR code URL.",
         responses={
@@ -214,11 +217,21 @@ class SetMFAView(APIView):
                         "qr_code_url": "otpauth://totp/Arna%20SSO:testuser@example.com?secret=SECRET_CODE&issuer=Arna%20SSO",
                     }
                 },
-            )
+            ),
+            400: openapi.Response(
+                description="MFA is already enabled"
+            ),
+            401: "Unauthorized",
         },
     )
     def post(self, request):
         user = request.user
+        if user.mfa_secret:
+            return Response(
+                {"error": "MFA is already enabled. Disable it first before setting a new secret."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         user.generate_mfa_secret()
         totp = pyotp.TOTP(user.mfa_secret)
 
@@ -239,7 +252,20 @@ class DisableMFAView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description="Disable MFA for the user.",
+        operation_description="Disable MFA for the user. Requires either current password OR valid TOTP code.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "password": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Current account password (optional if TOTP is provided)",
+                ),
+                "totp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Current 6-digit TOTP code (optional if password is provided)",
+                ),
+            },
+        ),
         responses={
             200: openapi.Response(
                 description="MFA disabled successfully",
@@ -249,10 +275,44 @@ class DisableMFAView(APIView):
                     }
                 },
             ),
+            400: "Password/TOTP missing or invalid, or MFA already disabled",
+            401: "Unauthorized",
         },
     )
     def post(self, request):
         user = request.user
+
+        if not user.mfa_secret:
+            return Response(
+                {"error": "MFA is already disabled."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        password = request.data.get("password")
+        totp_code = request.data.get("totp")
+
+        if not password and not totp_code:
+            return Response(
+                {"error": "Provide either password or TOTP code to disable MFA."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        authenticated = False
+
+        if password and user.check_password(password):
+            authenticated = True
+
+        if not authenticated and totp_code:
+            totp = pyotp.TOTP(user.mfa_secret)
+            if totp.verify(totp_code, valid_window=1):
+                authenticated = True
+
+        if not authenticated:
+            return Response(
+                {"error": "Invalid password or TOTP code."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         user.mfa_secret = None
         user.mfa_enabled = False
         user.save()
@@ -263,6 +323,30 @@ class DisableMFAView(APIView):
         return Response(
             {"message": "MFA has been disabled."},
             status=status.HTTP_200_OK
+        )
+
+
+class MFAStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Get MFA status for the authenticated user.",
+        responses={
+            200: openapi.Response(
+                description="MFA status",
+                examples={
+                    "application/json": {
+                        "mfa_enabled": True
+                    }
+                },
+            ),
+            401: "Unauthorized",
+        },
+    )
+    def get(self, request):
+        return Response(
+            {"mfa_enabled": bool(request.user.mfa_secret)},
+            status=status.HTTP_200_OK,
         )
 
 
