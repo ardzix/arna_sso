@@ -4,6 +4,9 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from authentication.views import homepage
+from authentication.admin_mfa import patch_admin_site
+
+patch_admin_site()
 
 schema_view = get_schema_view(
     openapi.Info(
