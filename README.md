@@ -1,169 +1,227 @@
 
 # SSO Service
 
-This project is an **SSO (Single Sign-On) service** built with Django. It handles authentication, JWT token management (with RS256 algorithm for token signing), and role-based access control (RBAC) for use across multiple microservices. The SSO service is designed to be integrated with other applications, using JWT tokens for user authentication and authorization.
+An **SSO (Single Sign-On) service** built with Django. Handles authentication, JWT token management (RS256), MFA, and role-based access control (RBAC) for use across multiple microservices.
 
 ## Table of Contents
 - [Features](#features)
 - [Technology Stack](#technology-stack)
-- [Installation](#installation)
+- [Setup Instructions](#setup-instructions)
 - [Environment Variables](#environment-variables)
-- [Key Configuration](#key-configuration)
-- [Usage](#usage)
+- [Login Methods](#login-methods)
 - [API Endpoints](#api-endpoints)
 - [Integration with Other Services](#integration-with-other-services)
-- [License](#license)
+
+---
 
 ## Features
-- **JWT Authentication**: Secure authentication with JWT using the RS256 algorithm.
-- **Role-based Access Control (RBAC)**: Assign roles and permissions to users, which control access to specific resources.
-- **MFA (Multi-Factor Authentication)**: Users can enable MFA for added security.
-- **JWT Token Rotation**: Support for token rotation and blacklisting of old tokens.
-- **Audit Logging**: Logs key user actions like registration, login, and MFA setup.
-- **Microservices Integration**: Easy integration with other services using JWT tokens.
+
+- **JWT Authentication** — RS256-signed access & refresh tokens with rotation + blacklisting
+- **4 Login Methods** — Password, Google OAuth, WhatsApp OTP, and Passkeys (WebAuthn/FIDO2)
+- **Passkeys (WebAuthn)** — Phishing-resistant, passwordless login; skips MFA by design
+- **MFA (TOTP)** — Time-based one-time passwords via authenticator apps
+- **Role-based Access Control (RBAC)** — Roles and permissions decoded from JWT by downstream services
+- **Audit Logging** — Key actions (registration, login, MFA, passkey use) logged asynchronously
+- **Microservices Integration** — Distribute `public.pem` to other services for token verification
+
+---
 
 ## Technology Stack
-- **Django**: Web framework for building the SSO service.
-- **Django REST Framework**: Provides API endpoints for authentication and role management.
-- **Django-Q2**: Used for asynchronous task processing and audit logging.
-- **Simple JWT**: For managing JWT tokens with support for RS256 signing.
-- **PyOTP**: For handling MFA using time-based one-time passwords (TOTP).
 
-## Installation
+| Library | Purpose |
+|---------|---------|
+| Django 5 | Web framework |
+| Django REST Framework | API layer |
+| Simple JWT (RS256) | Token management |
+| django-passkeys | WebAuthn / FIDO2 passkey support |
+| PyOTP | TOTP-based MFA |
+| Google Auth | Google OAuth token verification |
+| Django-Q2 | Async task queue (audit logging) |
+| uWSGI + Supervisor | Production server |
 
-### Prerequisites
-- Python 3.8+
-- Django 4.0+
-- PostgreSQL or any other database supported by Django
+---
 
-### Setup Instructions
+## Setup Instructions
 
-1. **Clone the repository**:
-   ```bash
-   git clone <repository-url>
-   cd sso_service
-   ```
+> **Prerequisites (local only):** Python 3.11+, Redis
 
-2. **Create a virtual environment**:
-   ```bash
-   python3 -m venv venv
-   source venv/bin/activate
-   ```
+| Step | 🐳 Docker | 💻 Local (venv) |
+|------|-----------|------------------|
+| **1. Clone** | `git clone <repository-url> && cd arna_sso` | `git clone <repository-url> && cd arna_sso` |
+| **2. Setup env** | *(uses `.env` file automatically)* | `python3 -m venv venv && source venv/bin/activate` |
+| **3. Install deps** | *(handled by Dockerfile)* | `pip install -r requirements.txt` |
+| **4. Start** | `docker compose up --build` | `python manage.py runserver` |
+| **5. Migrate** | `docker compose exec web python manage.py migrate` | `python manage.py migrate` |
+| **6. Superuser** | `docker compose exec web python manage.py createsuperuser` | `python manage.py createsuperuser` |
 
-3. **Install dependencies**:
-   ```bash
-   pip install -r requirements.txt
-   ```
+Service: `http://localhost:8001`  
+Swagger UI: `http://localhost:8001/swagger/`
 
-4. **Run migrations**:
-   ```bash
-   python manage.py migrate
-   ```
+### Key Generation (RS256)
 
-5. **Create superuser**:
-   ```bash
-   python manage.py createsuperuser
-   ```
+```bash
+openssl genpkey -algorithm RSA -out private.pem -pkeyopt rsa_keygen_bits:2048
+openssl rsa -pubout -in private.pem -out public.pem
+```
 
-6. **Start the development server**:
-   ```bash
-   python manage.py runserver
-   ```
-
-### Key Generation for RS256
-
-1. **Generate Private and Public Keys**:
-   Run the following commands to generate the necessary keys for RS256:
-   ```bash
-   # Generate private key
-   openssl genpkey -algorithm RSA -out private.pem -pkeyopt rsa_keygen_bits:2048
-
-   # Generate public key
-   openssl rsa -pubout -in private.pem -out public.pem
-   ```
-
-2. **Move the keys to a secure location** and ensure they are properly referenced in the application configuration.
+---
 
 ## Environment Variables
 
-The project requires the following environment variables:
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `SECRET_KEY` | Django secret key | *(required)* |
+| `FIDO_SERVER_ID` | Passkey RP ID — must match the browser's origin domain | `localhost` |
+| `FIDO_SERVER_NAME` | Passkey RP display name | `Arna SSO` |
+| `SESSION_COOKIE_SAMESITE` | Cookie policy (`Lax` / `None`) | `Lax` |
+| `SESSION_COOKIE_SECURE` | Set `True` in HTTPS production | `False` |
+| `ACCESS_TOKEN_LIFETIME_MINUTES` | JWT access token lifetime | `5` |
+| `REFRESH_TOKEN_LIFETIME_DAYS` | JWT refresh token lifetime | `1` |
+| `WAHA_API_URL` | WhatsApp WAHA API base URL | — |
+| `WAHA_API_KEY` | WhatsApp WAHA API key | — |
+| `N8N_WEBHOOK_URL` | n8n webhook base URL (reverse WA OTP) | — |
+| `N8N_WEBHOOK_ID` | n8n webhook UUID | — |
+| `N8N_WEBHOOK_AUTH_TOKEN` | n8n webhook auth token | — |
 
-| Variable                  | Description                              |
-|----------------------------|------------------------------------------|
-| `SECRET_KEY`               | Django secret key for the application    |
-| `DATABASE_URL`             | Database connection URL                  |
-| `JWT_PRIVATE_KEY`          | Path to the private key for RS256 signing|
-| `JWT_PUBLIC_KEY`           | Path to the public key for RS256 signing |
+> **Passkey production note:** Set `FIDO_SERVER_ID` to your actual domain (e.g. `sso.arnatech.id`). It must exactly match the domain the browser connects to.
 
-## Key Configuration
+---
 
-In your **`settings.py`**, configure JWT to use RS256 and your private key:
+## Login Methods
 
-```python
-from datetime import timedelta
+Users have **4 login options**. All return the same JWT token shape:
 
-with open('path/to/private.pem', 'r') as f:
-    private_key = f.read()
-
-SIMPLE_JWT = {
-    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=5),
-    'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': True,
-    'BLACKLIST_AFTER_ROTATION': True,
-    'AUTH_HEADER_TYPES': ('Bearer',),
-    'ALGORITHM': 'RS256',
-    'SIGNING_KEY': private_key,
+```json
+{
+  "refresh": "eyJ...",
+  "access":  "eyJ...",
+  "email":   "user@example.com",
+  "full_name": "User Name"
 }
 ```
 
-## Usage
+### 1. Password Login
+Standard email + password. Supports MFA (TOTP).
 
-### 1. **User Registration**
-   - A user can register by hitting the `/api/auth/register/` endpoint.
-   - Once registered, the service issues an access token and a refresh token.
+```
+POST /auth/login/
+{ "email": "...", "password": "..." }
+```
 
-### 2. **User Login**
-   - The `/api/auth/login/` endpoint will return JWT tokens (access and refresh).
-   - If MFA is enabled for the user, a second step with an MFA token is required.
+If MFA is enabled → returns `mfa_required: true` + a pre-auth token → complete at `POST /auth/mfa/verify/`.
 
-### 3. **Token Refresh**
-   - The `/api/auth/refresh/` endpoint allows users to refresh their access tokens using the refresh token.
+### 2. Google Login
+Send the Google ID token from `gsi.client` / `google.accounts.id.initialize`.
 
-### 4. **Multi-Factor Authentication**
-   - Users can enable MFA by hitting `/api/auth/set-mfa/`.
-   - MFA-aware login is handled via `/api/auth/mfa-login/` and verified with `/api/auth/mfa-verify/`.
+```
+POST /auth/google-login/
+{ "token": "<google-id-token>" }
+```
+
+Respects the user's MFA setting. Automatically creates user if new.
+
+### 3. WhatsApp OTP
+Two flows: **push** (WAHA sends OTP to the user) and **reverse** (user messages the bot first).
+
+```
+POST /auth/wa/send-otp/       { "phone_number": "628..." }
+POST /auth/wa/verify-otp/     { "phone_number": "628...", "otp": "123456" }
+```
+
+### 4. Passkeys (WebAuthn / FIDO2) ✨
+
+Passwordless, phishing-resistant login — Face ID, Touch ID, Windows Hello, or hardware security keys. **MFA is skipped** (passkeys are strong 2FA by default).
+
+#### Login flow (no prior auth)
+
+```
+GET  /api/auth/passkeys/login/begin/     → returns PublicKeyCredentialRequestOptions
+POST /api/auth/passkeys/login/complete/  → verify assertion → returns JWT tokens
+```
+
+#### Registration flow (authenticated user adds a passkey)
+
+```
+GET  /api/auth/passkeys/register/begin/     → (JWT required) → returns PublicKeyCredentialCreationOptions
+POST /api/auth/passkeys/register/complete/  → (JWT required) → stores credential
+```
+
+> For full browser console test snippets, see [PASSKEY_WALKTHROUGH.md](PASSKEY_WALKTHROUGH.md).
+
+---
 
 ## API Endpoints
 
-| Endpoint                    | Method | Description                                    |
-|------------------------------|--------|------------------------------------------------|
-| `/api/auth/register/`         | POST   | Register a new user                            |
-| `/api/auth/login/`            | POST   | Log in a user and return JWT tokens            |
-| `/api/auth/refresh/`          | POST   | Refresh the access token using a refresh token |
-| `/api/auth/set-mfa/`          | POST   | Enable MFA for the user                        |
-| `/api/auth/mfa-login/`        | POST   | MFA-aware login                                |
-| `/api/auth/mfa-verify/`       | POST   | Verify MFA token and log in                    |
-| `/api/auth/logout/`           | POST   | Log out and blacklist the refresh token        |
+### Authentication
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/auth/register/` | — | Register new user |
+| `POST` | `/auth/login/` | — | Password login (MFA-aware) |
+| `POST` | `/auth/google-login/` | — | Google OAuth login |
+| `POST` | `/auth/logout/` | JWT | Blacklist refresh token |
+| `POST` | `/auth/token/refresh/` | — | Refresh access token |
+| `POST` | `/auth/token/verify/` | — | Verify a token |
+
+### MFA
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/auth/mfa/set/` | JWT | Enable TOTP MFA |
+| `POST` | `/auth/mfa/disable/` | JWT | Disable MFA |
+| `POST` | `/auth/mfa/verify/` | — | Verify MFA code → JWT |
+
+### Passkeys (WebAuthn)
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET` | `/api/auth/passkeys/login/begin/` | — | Get assertion options |
+| `POST` | `/api/auth/passkeys/login/complete/` | Session cookie | Verify → JWT (MFA skipped) |
+| `GET` | `/api/auth/passkeys/register/begin/` | JWT | Get creation options |
+| `POST` | `/api/auth/passkeys/register/complete/` | JWT + cookie | Store passkey |
+| `GET` | `/api/auth/passkeys/` | JWT | List registered passkeys |
+| `DELETE` | `/api/auth/passkeys/<id>/` | JWT | Delete a passkey |
+
+### WhatsApp OTP
+
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/auth/wa/send-otp/` | Push OTP via WAHA |
+| `POST` | `/auth/wa/verify-otp/` | Verify OTP → JWT |
+| `POST` | `/auth/wa/send-link-otp/` | OTP for phone linking |
+| `POST` | `/auth/wa/verify-link/` | Verify phone link OTP |
+| `POST` | `/auth/wa/register-request/` | Register with phone |
+| `POST` | `/auth/wa/register-verify/` | Verify registration OTP |
+| `POST` | `/auth/wa/reverse/send-otp/` | Reverse OTP (n8n webhook) |
+
+### User & Password
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `GET/PATCH` | `/auth/me/` | JWT | Get / update current user |
+| `POST` | `/auth/verify-email/` | — | Verify email with OTP |
+| `POST` | `/auth/resend-email-otp/` | — | Resend email OTP |
+| `POST` | `/auth/password-reset-request/` | — | Request password reset OTP |
+| `POST` | `/auth/password-reset-confirm/` | — | Reset password with OTP |
+| `POST` | `/auth/change-password/` | JWT | Change password |
+
+> Full interactive docs available at `/swagger/` when the service is running.
+
+---
 
 ## Integration with Other Services
 
-When integrating this SSO service with other microservices:
+1. **Token Distribution**: After login, include the access token in every request:
+   ```http
+   Authorization: Bearer <JWT-ACCESS-TOKEN>
+   ```
 
-1. **Token Distribution**: After login, the SSO service issues JWT tokens (signed with RS256). The access token is used to authenticate subsequent requests.
-   
-2. **Public Key Distribution**: Distribute the **public key** (`public.pem`) to other services so they can validate JWT tokens issued by the SSO service.
+2. **Public Key Distribution**: Copy `public.pem` to downstream services so they can verify JWT signatures without calling back to the SSO service.
 
-3. **Role-Based Access Control**: Other services can decode the JWT token to verify user roles and permissions.
+3. **Role-Based Access Control**: Decode the JWT payload to read user roles and permissions.
 
-### Example Usage in Another Service:
-
-- The JWT token is included in the `Authorization` header:
-  ```http
-  Authorization: Bearer <JWT-ACCESS-TOKEN>
-  ```
-
-- The other service decodes the token using the public key and checks the user’s roles and permissions.
+---
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+MIT License. See [LICENSE](LICENSE) for details.

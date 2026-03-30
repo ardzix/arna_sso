@@ -62,3 +62,19 @@ class User(AbstractBaseUser, PermissionsMixin):
         """Verify the provided MFA token."""
         totp = pyotp.TOTP(self.mfa_secret)
         return totp.verify(token)
+
+    @property
+    def username(self):
+        """
+        Alias for email, required by some third-party apps (like django-passkeys)
+        that expect a 'username' attribute.
+        """
+        return self.email
+
+    def get_full_name(self):
+        """Return the email as the full name."""
+        return self.email
+
+    def get_short_name(self):
+        """Return the email as the short name."""
+        return self.email
