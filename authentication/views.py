@@ -1,14 +1,15 @@
 import pyotp
 from rest_framework import status
-from rest_framework.permissions import AllowAny
+from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
+from rest_framework_simplejwt.tokens import UntypedToken
 from django.contrib.auth import authenticate
 from django.utils.timezone import now
 from authentication.models import User
-from authentication.serializers import UserSerializer
+from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer, PreAuthTokenSerializer
 from datetime import timedelta
 from .libs.utils import generate_otp
 from .signals import send_otp_email
@@ -19,6 +20,7 @@ from django.core.mail import send_mail
 from django.conf import settings
 from authentication.serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer, ChangePasswordSerializer
 from user_profile.models import UserProfile
+from django.core.cache import cache
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -57,7 +59,7 @@ class RegisterView(APIView):
         serializer = UserSerializer(data=request.data)
         if serializer.is_valid():
             user = serializer.save()
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
 
             # Emit signal to log the registration asynchronously
             user_registered.send(
@@ -78,6 +80,7 @@ class LoginView(TokenObtainPairView):
     """
     This will handle login and return access and refresh tokens if MFA is not enabled.
     """
+    serializer_class = MyTokenObtainPairSerializer
 
     @swagger_auto_schema(
         operation_description="Login a user and return access and refresh tokens.",
@@ -110,11 +113,12 @@ class LoginView(TokenObtainPairView):
         response = super().post(request)
 
         if response.status_code == 200:
-            user = User.objects.get(email=request.data.get("email"))
-            # Emit signal to log login asynchronously
-            user_logged_in.send(
-                sender=self.__class__, user=user, metadata={"email": user.email}
-            )
+            user = User.objects.filter(email__iexact=request.data.get("email", "")).first()
+            if user:
+                # Emit signal to log login asynchronously
+                user_logged_in.send(
+                    sender=self.__class__, user=user, metadata={"email": user.email}
+                )
 
         return response
 
@@ -200,6 +204,8 @@ class RefreshTokenView(TokenRefreshView):
 
 
 class SetMFAView(APIView):
+    permission_classes = [IsAuthenticated]
+
     @swagger_auto_schema(
         operation_description="Set up MFA for the user and return the MFA secret and QR code URL.",
         responses={
@@ -208,14 +214,24 @@ class SetMFAView(APIView):
                 examples={
                     "application/json": {
                         "mfa_secret": "SECRET_CODE",
-                        "qr_code_url": "otpauth://totp/YourApp:testuser@example.com?secret=SECRET_CODE&issuer=YourApp",
+                        "qr_code_url": "otpauth://totp/Arna%20SSO:testuser@example.com?secret=SECRET_CODE&issuer=Arna%20SSO",
                     }
                 },
-            )
+            ),
+            400: openapi.Response(
+                description="MFA is already enabled"
+            ),
+            401: "Unauthorized",
         },
     )
     def post(self, request):
         user = request.user
+        if user.mfa_secret:
+            return Response(
+                {"error": "MFA is already enabled. Disable it first before setting a new secret."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
         user.generate_mfa_secret()
         totp = pyotp.TOTP(user.mfa_secret)
 
@@ -227,8 +243,110 @@ class SetMFAView(APIView):
         return Response(
             {
                 "mfa_secret": user.mfa_secret,
-                "qr_code_url": totp.provisioning_uri(user.email, issuer_name="YourApp"),
+                "qr_code_url": totp.provisioning_uri(user.email, issuer_name="Arna SSO"),
             }
+        )
+
+
+class DisableMFAView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Disable MFA for the user. Requires either current password OR valid TOTP code.",
+        request_body=openapi.Schema(
+            type=openapi.TYPE_OBJECT,
+            properties={
+                "password": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Current account password (optional if TOTP is provided)",
+                ),
+                "totp": openapi.Schema(
+                    type=openapi.TYPE_STRING,
+                    description="Current 6-digit TOTP code (optional if password is provided)",
+                ),
+            },
+        ),
+        responses={
+            200: openapi.Response(
+                description="MFA disabled successfully",
+                examples={
+                    "application/json": {
+                        "message": "MFA has been disabled.",
+                    }
+                },
+            ),
+            400: "Password/TOTP missing or invalid, or MFA already disabled",
+            401: "Unauthorized",
+        },
+    )
+    def post(self, request):
+        user = request.user
+
+        if not user.mfa_secret:
+            return Response(
+                {"error": "MFA is already disabled."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        password = request.data.get("password")
+        totp_code = request.data.get("totp")
+
+        if not password and not totp_code:
+            return Response(
+                {"error": "Provide either password or TOTP code to disable MFA."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        authenticated = False
+
+        if password and user.check_password(password):
+            authenticated = True
+
+        if not authenticated and totp_code:
+            totp = pyotp.TOTP(user.mfa_secret)
+            if totp.verify(totp_code, valid_window=1):
+                authenticated = True
+
+        if not authenticated:
+            return Response(
+                {"error": "Invalid password or TOTP code."},
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        user.mfa_secret = None
+        user.mfa_enabled = False
+        user.save()
+
+        # Emit signal (optional, but good practice for audit logs if we had them here)
+        # For now just return success
+
+        return Response(
+            {"message": "MFA has been disabled."},
+            status=status.HTTP_200_OK
+        )
+
+
+class MFAStatusView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Get MFA status for the authenticated user.",
+        responses={
+            200: openapi.Response(
+                description="MFA status",
+                examples={
+                    "application/json": {
+                        "mfa_enabled": True
+                    }
+                },
+            ),
+            401: "Unauthorized",
+        },
+    )
+    def get(self, request):
+        return Response(
+            {"mfa_enabled": bool(request.user.mfa_secret)},
+            status=status.HTTP_200_OK,
         )
 
 
@@ -274,16 +392,18 @@ class MFAAwareLoginView(APIView):
                 )
 
                 # MFA is enabled, send response to prompt MFA token
+                pre_auth_token = PreAuthTokenSerializer.get_token(user)
                 return Response(
                     {
                         "mfa_required": True,
                         "message": "MFA is required. Please provide your MFA token.",
+                        "token": pre_auth_token,
                     },
                     status=status.HTTP_200_OK,
                 )
             else:
                 # MFA is not enabled, return the JWT tokens
-                refresh = RefreshToken.for_user(user)
+                refresh = MyTokenObtainPairSerializer.get_token(user)
                 # Emit signal to log login asynchronously
                 user_logged_in.send(
                     sender=self.__class__, user=user, metadata={"email": user.email}
@@ -302,52 +422,79 @@ class MFAAwareLoginView(APIView):
 
 
 class MFAVerifyView(APIView):
+    throttle_scope = 'mfa_verify'
+    
     @swagger_auto_schema(
-        operation_description="Verify MFA token and return JWT tokens if successful.",
+        operation_description="Verify MFA token using a Pre-Auth Token from the previous step.",
         request_body=openapi.Schema(
             type=openapi.TYPE_OBJECT,
             properties={
-                "email": openapi.Schema(
-                    type=openapi.TYPE_STRING, description="User email"
+                "token": openapi.Schema(
+                    type=openapi.TYPE_STRING, description="Pre-Auth Token (received from Login step)"
                 ),
                 "mfa_token": openapi.Schema(
-                    type=openapi.TYPE_STRING, description="MFA token"
+                    type=openapi.TYPE_STRING, description="6-digit MFA Code"
                 ),
             },
-            required=["email", "mfa_token"],
+            required=["token", "mfa_token"],
         ),
         responses={
             200: openapi.Response(
-                description="MFA token verified, JWT tokens returned",
+                description="MFA verified, JWT tokens returned",
                 examples={
                     "application/json": {
-                        "refresh": "eyJhbGciOiJIUzI1...",
-                        "access": "eyJhbGciOiJIUzI1...",
+                        "refresh": "eyJ...",
+                        "access": "eyJ...",
                     }
                 },
             ),
-            400: "Invalid MFA token or credentials",
-            404: "User not found",
+            400: "Invalid Token or Code",
+            401: "Token Expired or Invalid",
         },
     )
     def post(self, request, *args, **kwargs):
-        email = request.data.get("email")
-        mfa_token = request.data.get("mfa_token")
+        pre_auth_token = request.data.get("token")
+        mfa_code = request.data.get("mfa_token")
+
+        if not pre_auth_token or not mfa_code:
+             return Response(
+                {"error": "Missing token or MFA code"},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
         try:
-            user = User.objects.get(email=email)
-
-            # Verify the provided MFA token
-            totp = pyotp.TOTP(user.mfa_secret)
-            if totp.verify(mfa_token):
-                # MFA verified, return the JWT tokens
-                refresh = RefreshToken.for_user(user)
-
-                # Emit signal for successful MFA verification
-                mfa_verified.send(
-                    sender=self.__class__, user=user, metadata={"mfa_token": mfa_token}
+            # 1. Validate the Pre-Auth Token
+            valid_data = UntypedToken(pre_auth_token)
+            
+            # Check token type
+            if valid_data.get("type") != "pre_auth":
+                 return Response(
+                    {"error": "Invalid token type"},
+                    status=status.HTTP_401_UNAUTHORIZED,
                 )
 
+            user_id = valid_data.get("user_id")
+            user = User.objects.get(id=user_id)
+
+            # 2. Verify the TOTP Code Check Cache for Replay Attack
+            cache_key = f"mfa_used_{user.id}_{mfa_code}"
+            if cache.get(cache_key):
+                 return Response(
+                    {"error": "Invalid MFA code (Token reused)"},
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            totp = pyotp.TOTP(user.mfa_secret)
+            # valid_window=1 allows current time, +30s, and -30s (total 90s window) to handle clock drift
+            if totp.verify(mfa_code, valid_window=1):
+                # Mark token as used in cache for 90 seconds (covering the valid window)
+                cache.set(cache_key, True, timeout=90)
+                
+                # MFA verified -> ISSUE REAL TOKENS
+                refresh = MyTokenObtainPairSerializer.get_token(user)
+                mfa_verified.send(
+                    sender=self.__class__, user=user, metadata={"mfa_token": mfa_code}
+                )
                 return Response(
                     {
                         "refresh": str(refresh),
@@ -357,14 +504,16 @@ class MFAVerifyView(APIView):
                 )
             else:
                 return Response(
-                    {"error": "Invalid MFA token or credentials"},
+                    {"error": "Invalid MFA code"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
-        except User.DoesNotExist:
+        except Exception as e:
+            # Catch token errors (expired, invalid signature)
+            print(f"MFA Error: {e}")
             return Response(
-                {"error": "Invalid MFA token or credentials"},
-                status=status.HTTP_404_NOT_FOUND,
+                {"error": "Invalid or expired session. Please login again."},
+                status=status.HTTP_401_UNAUTHORIZED,
             )
 
 class VerifyEmailView(APIView):
@@ -577,8 +726,24 @@ class GoogleLoginView(APIView):
                 },
             )
 
+            # Check if MFA is enabled
+            if user.mfa_secret:
+                # Emit signal for MFA login attempt
+                mfa_login_attempt.send(
+                    sender=self.__class__, user=user, metadata={"mfa_required": True, "method": "google"}
+                )
+                pre_auth_token = PreAuthTokenSerializer.get_token(user)
+                return Response(
+                    {
+                        "mfa_required": True,
+                        "message": "MFA is required. Please provide your MFA token.",
+                        "token": pre_auth_token,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             user_logged_in.send(
                 sender=self.__class__, user=user, metadata={"email": email}
             )
@@ -599,3 +764,34 @@ from django.shortcuts import render
 
 def homepage(request):
     return render(request, 'homepage.html')
+
+class ManageUserView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(
+        operation_description="Get details of the currently authenticated user.",
+        responses={
+            200: UserSerializer(),
+            401: "Unauthorized",
+        },
+    )
+    def get(self, request):
+        serializer = UserSerializer(request.user)
+        return Response(serializer.data)
+
+    @swagger_auto_schema(
+        operation_description="Update details of the currently authenticated user.",
+        request_body=UserSerializer,
+        responses={
+            200: UserSerializer(),
+            400: "Bad Request",
+            401: "Unauthorized",
+        },
+    )
+    def patch(self, request):
+        user = request.user
+        serializer = UserSerializer(user, data=request.data, partial=True)
+        if serializer.is_valid():
+            serializer.save()
+            return Response(serializer.data)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)

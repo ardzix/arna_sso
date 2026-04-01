@@ -18,6 +18,8 @@ from authentication.serializers import (
     WAReverseSendLinkOTPSerializer,
     WAReverseRegisterRequestSerializer,
     WAReverseSendOTPSerializer,
+    PreAuthTokenSerializer,
+    MyTokenObtainPairSerializer,
 )
 from authentication.libs.utils import (
     normalize_phone_number,
@@ -264,7 +266,7 @@ class WARegisterVerifyView(APIView):
             user.save()
             
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             
             return Response(
                 {
@@ -391,8 +393,21 @@ class WAVerifyOTPView(APIView):
             user.phone_verified = True
             user.save()
             
+            # Check if MFA is enabled
+            if user.mfa_secret:
+                pre_auth_token = PreAuthTokenSerializer.get_token(user)
+                return Response(
+                    {
+                        "mfa_required": True,
+                        "message": "MFA is required. Please provide your MFA token.",
+                        "token": pre_auth_token,
+                        "email": user.email,
+                    },
+                    status=status.HTTP_200_OK,
+                )
+
             # Issue JWT tokens
-            refresh = RefreshToken.for_user(user)
+            refresh = MyTokenObtainPairSerializer.get_token(user)
             
             return Response(
                 {

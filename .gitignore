@@ -20,6 +20,9 @@ media/
 static/
 staticfiles/
 
+# Codex specific
+codex-session.txt
+
 # VSCode specific
 .vscode/
 
@@ -52,3 +55,4 @@ celerybeat-schedule
 
 # Keys
 *.pem
+supervisord.pid

@@ -6,12 +6,14 @@ from .views import (
     LogoutView,
     RefreshTokenView,
     SetMFAView,
+    MFAStatusView,
     MFAVerifyView,
     VerifyEmailView,
     ResendOTPView,
     PasswordResetRequestView,
     PasswordResetConfirmView,
-    ChangePasswordView, GoogleLoginView,
+    ChangePasswordView, GoogleLoginView, ManageUserView,
+    DisableMFAView,
 )
 from .wa_views import (
     WASendLinkOTPView,
@@ -27,10 +29,13 @@ from .wa_views import (
 
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
+    path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),
     path('token/refresh/', RefreshTokenView.as_view(), name='token_refresh'),
     path('token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('mfa/set/', SetMFAView.as_view(), name='set_mfa'),
+    path('mfa/status/', MFAStatusView.as_view(), name='mfa_status'),
+    path('mfa/disable/', DisableMFAView.as_view(), name='disable_mfa'),
     path('login/', MFAAwareLoginView.as_view(), name='login'),
     path('google-login/', GoogleLoginView.as_view(), name='google-login'),
     path('mfa/verify/', MFAVerifyView.as_view(), name='mfa_verify'),

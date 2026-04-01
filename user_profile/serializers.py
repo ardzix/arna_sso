@@ -3,12 +3,15 @@ from .models import UserProfile
 
 
 class UserProfileSerializer(serializers.ModelSerializer):
+    user_name = serializers.ReadOnlyField(source='user.email')
+
     class Meta:
         model = UserProfile
         fields = [
             'id',
             'user',
             'full_name',
+            'user_name',
             'bio',
             'profile_picture',
             'phone_number',

@@ -63,8 +63,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     "django_extensions",
     "corsheaders",
-    "rest_framework",  # For REST APIs
-    "django_grpc_framework",  # For gRPC APIs
+    "rest_framework",
     "authentication",
     "authorization",
     "iam",
@@ -75,6 +74,13 @@ INSTALLED_APPS = [
     "drf_yasg",
     "django_q",
 ]
+
+# Optional: django_grpc_framework hanya jika paket grpc terpasang (mis. Windows opsional).
+try:
+    import grpc  # noqa: F401
+    INSTALLED_APPS.append("django_grpc_framework")
+except ImportError:
+    pass
 
 
 MIDDLEWARE = [
@@ -180,6 +186,8 @@ SWAGGER_SETTINGS = {
             "in": "header",
         }
     },
+    'persistAuthorization': True,
+    'DEFAULT_INFO': 'sso_service.swagger_info.api_info',
 }
 
 
@@ -190,6 +198,17 @@ REST_FRAMEWORK = {
     "DEFAULT_PERMISSION_CLASSES": [
         "rest_framework.permissions.AllowAny",
     ],
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle",
+        "rest_framework.throttling.ScopedRateThrottle",
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "100/day",
+        "user": "1000/day",
+        "mfa_verify": "5/minute",
+        "login_attempt": "10/minute",
+    },
 }
 
 
@@ -231,6 +250,9 @@ SIMPLE_JWT = {
     "ALGORITHM": "RS256",
     "SIGNING_KEY": private_key,
     "VERIFYING_KEY": public_key,
+    "PRE_AUTH_TOKEN_LIFETIME": timedelta(
+        minutes=_env_int("PRE_AUTH_TOKEN_LIFETIME_MINUTES", 5)
+    ),
 }
 
 Q_CLUSTER = {
