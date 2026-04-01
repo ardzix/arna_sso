@@ -26,7 +26,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the application code into the container
 COPY . .
 
-# Collect static files
+# Static files (tanpa SECRET_KEY/.env/PEM JWT di image build — lihat DJANGO_COLLECTSTATIC_BUILD di settings)
 RUN python manage.py collectstatic --noinput
 
 # Set environment variables

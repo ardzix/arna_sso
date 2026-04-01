@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import sys
 from datetime import timedelta
 
 from django.core.exceptions import ImproperlyConfigured
@@ -41,11 +42,22 @@ def _env_list(name: str, default: str) -> list:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
-SECRET_KEY = os.getenv("SECRET_KEY")
-if not SECRET_KEY:
-    raise ImproperlyConfigured(
-        "SECRET_KEY must be set in the environment or .env file (see .env.example)."
+# Hanya untuk build image (collectstatic, dll.): tanpa .env, tanpa PEM JWT di context build.
+# Runtime wajib unset + SECRET_KEY + JWT keys seperti biasa.
+_collectstatic_build = _env_bool("DJANGO_COLLECTSTATIC_BUILD", False) or (
+    "collectstatic" in sys.argv
+)
+
+if _collectstatic_build:
+    SECRET_KEY = os.getenv(
+        "SECRET_KEY", "django-insecure-collectstatic-build-only-not-for-runtime"
     )
+else:
+    SECRET_KEY = os.getenv("SECRET_KEY")
+    if not SECRET_KEY:
+        raise ImproperlyConfigured(
+            "SECRET_KEY must be set in the environment or .env file (see .env.example)."
+        )
 
 DEBUG = _env_bool("DEBUG", default=False)
 
@@ -212,48 +224,57 @@ REST_FRAMEWORK = {
 }
 
 
-# JWT keys (paths relative to BASE_DIR if not absolute)
-_jwt_private_rel = os.getenv("JWT_PRIVATE_KEY_PATH", "private.pem")
-_jwt_public_rel = os.getenv("JWT_PUBLIC_KEY_PATH", "public.pem")
-_priv = Path(_jwt_private_rel)
-_jwt_private_path = _priv if _priv.is_absolute() else BASE_DIR / _priv
-_pub = Path(_jwt_public_rel)
-_jwt_public_path = _pub if _pub.is_absolute() else BASE_DIR / _pub
-
-if not _jwt_private_path.is_file():
-    raise ImproperlyConfigured(
-        f"JWT private key not found at {_jwt_private_path}. "
-        "Set JWT_PRIVATE_KEY_PATH in .env or place private.pem in the project root."
-    )
-if not _jwt_public_path.is_file():
-    raise ImproperlyConfigured(
-        f"JWT public key not found at {_jwt_public_path}. "
-        "Set JWT_PUBLIC_KEY_PATH in .env or place public.pem in the project root."
-    )
-
-with open(_jwt_private_path, "r", encoding="utf-8") as f:
-    private_key = f.read()
-
-with open(_jwt_public_path, "r", encoding="utf-8") as f:
-    public_key = f.read()
-
-SIMPLE_JWT = {
-    "ACCESS_TOKEN_LIFETIME": timedelta(
-        minutes=_env_int("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", 5)
-    ),
-    "REFRESH_TOKEN_LIFETIME": timedelta(
-        days=_env_int("JWT_REFRESH_TOKEN_LIFETIME_DAYS", 1)
-    ),
+# JWT (RS256 + PEM di runtime; HS256 sementara hanya saat collectstatic build)
+_jwt_lifetime_access = _env_int("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", 5)
+_jwt_lifetime_refresh = _env_int("JWT_REFRESH_TOKEN_LIFETIME_DAYS", 1)
+_jwt_pre_auth_minutes = _env_int("PRE_AUTH_TOKEN_LIFETIME_MINUTES", 5)
+_jwt_common = {
+    "ACCESS_TOKEN_LIFETIME": timedelta(minutes=_jwt_lifetime_access),
+    "REFRESH_TOKEN_LIFETIME": timedelta(days=_jwt_lifetime_refresh),
     "ROTATE_REFRESH_TOKENS": True,
     "BLACKLIST_AFTER_ROTATION": True,
     "AUTH_HEADER_TYPES": ("Bearer",),
-    "ALGORITHM": "RS256",
-    "SIGNING_KEY": private_key,
-    "VERIFYING_KEY": public_key,
-    "PRE_AUTH_TOKEN_LIFETIME": timedelta(
-        minutes=_env_int("PRE_AUTH_TOKEN_LIFETIME_MINUTES", 5)
-    ),
+    "PRE_AUTH_TOKEN_LIFETIME": timedelta(minutes=_jwt_pre_auth_minutes),
 }
+
+if _collectstatic_build:
+    SIMPLE_JWT = {
+        **_jwt_common,
+        "ALGORITHM": "HS256",
+        "SIGNING_KEY": SECRET_KEY,
+        "VERIFYING_KEY": None,
+    }
+else:
+    _jwt_private_rel = os.getenv("JWT_PRIVATE_KEY_PATH", "private.pem")
+    _jwt_public_rel = os.getenv("JWT_PUBLIC_KEY_PATH", "public.pem")
+    _priv = Path(_jwt_private_rel)
+    _jwt_private_path = _priv if _priv.is_absolute() else BASE_DIR / _priv
+    _pub = Path(_jwt_public_rel)
+    _jwt_public_path = _pub if _pub.is_absolute() else BASE_DIR / _pub
+
+    if not _jwt_private_path.is_file():
+        raise ImproperlyConfigured(
+            f"JWT private key not found at {_jwt_private_path}. "
+            "Set JWT_PRIVATE_KEY_PATH in .env or place private.pem in the project root."
+        )
+    if not _jwt_public_path.is_file():
+        raise ImproperlyConfigured(
+            f"JWT public key not found at {_jwt_public_path}. "
+            "Set JWT_PUBLIC_KEY_PATH in .env or place public.pem in the project root."
+        )
+
+    with open(_jwt_private_path, "r", encoding="utf-8") as f:
+        private_key = f.read()
+
+    with open(_jwt_public_path, "r", encoding="utf-8") as f:
+        public_key = f.read()
+
+    SIMPLE_JWT = {
+        **_jwt_common,
+        "ALGORITHM": "RS256",
+        "SIGNING_KEY": private_key,
+        "VERIFYING_KEY": public_key,
+    }
 
 Q_CLUSTER = {
     "name": "DjangORM",
