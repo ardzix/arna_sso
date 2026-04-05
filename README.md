@@ -71,7 +71,7 @@ openssl rsa -pubout -in private.pem -out public.pem
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `SECRET_KEY` | Django secret key | *(required)* |
-| `FIDO_SERVER_ID` | Passkey RP ID — must match the browser's origin domain | `localhost` |
+| `FIDO_SERVER_ID` | Passkey RP ID. Must match caller origin domain or its parent domain | `localhost` |
 | `FIDO_SERVER_NAME` | Passkey RP display name | `Arna SSO` |
 | `SESSION_COOKIE_SAMESITE` | Cookie policy (`Lax` / `None`) | `Lax` |
 | `SESSION_COOKIE_SECURE` | Set `True` in HTTPS production | `False` |
@@ -83,7 +83,7 @@ openssl rsa -pubout -in private.pem -out public.pem
 | `N8N_WEBHOOK_ID` | n8n webhook UUID | — |
 | `N8N_WEBHOOK_AUTH_TOKEN` | n8n webhook auth token | — |
 
-> **Passkey production note:** Set `FIDO_SERVER_ID` to your actual domain (e.g. `sso.arnatech.id`). It must exactly match the domain the browser connects to.
+> **Passkey production note:** If multiple subdomains consume SSO (`account.arnatech.id`, `clockin.arnatech.id`), set `FIDO_SERVER_ID=arnatech.id`.
 
 ---
 
@@ -139,12 +139,18 @@ GET  /api/auth/passkeys/login/begin/     → returns PublicKeyCredentialRequestO
 POST /api/auth/passkeys/login/complete/  → verify assertion → returns JWT tokens
 ```
 
+Frontend must call both endpoints with `credentials: 'include'` so the session challenge survives begin → complete.
+
 #### Registration flow (authenticated user adds a passkey)
 
 ```
 GET  /api/auth/passkeys/register/begin/     → (JWT required) → returns PublicKeyCredentialCreationOptions
 POST /api/auth/passkeys/register/complete/  → (JWT required) → stores credential
 ```
+
+Frontend must use:
+- `Authorization: Bearer <access_token>` for register begin/complete
+- `credentials: 'include'` for both begin and complete
 
 > For full browser console test snippets, see [PASSKEY_WALKTHROUGH.md](PASSKEY_WALKTHROUGH.md).
 

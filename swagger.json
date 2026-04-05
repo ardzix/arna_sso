@@ -316,6 +316,224 @@
             },
             "parameters": []
         },
+        "/auth/passkeys/": {
+            "get": {
+                "operationId": "auth_passkeys_list",
+                "description": "List passkeys registered by the authenticated user.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "List of passkeys"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/passkeys/{pk}/": {
+            "delete": {
+                "operationId": "auth_passkeys_delete",
+                "description": "Delete a registered passkey by its database ID.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "Passkey deleted"
+                    },
+                    "403": {
+                        "description": "Forbidden"
+                    },
+                    "404": {
+                        "description": "Passkey not found"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": [
+                {
+                    "name": "pk",
+                    "in": "path",
+                    "required": true,
+                    "type": "integer"
+                }
+            ]
+        },
+        "/auth/passkeys/login/begin/": {
+            "get": {
+                "operationId": "auth_passkeys_login_begin",
+                "description": "Begin passkey login. Frontend must keep the session cookie and call login complete with credentials include.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "PublicKeyCredentialRequestOptions"
+                    },
+                    "500": {
+                        "description": "Failed to begin login"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/passkeys/login/complete/": {
+            "post": {
+                "operationId": "auth_passkeys_login_complete",
+                "description": "Complete passkey login and return JWT tokens. Requires session cookie from login begin. Inactive users are blocked.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "id",
+                                "rawId",
+                                "response",
+                                "type"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "rawId": {
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "example": "public-key"
+                                },
+                                "response": {
+                                    "type": "object",
+                                    "properties": {
+                                        "authenticatorData": {
+                                            "type": "string"
+                                        },
+                                        "clientDataJSON": {
+                                            "type": "string"
+                                        },
+                                        "signature": {
+                                            "type": "string"
+                                        },
+                                        "userHandle": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "JWT tokens returned"
+                    },
+                    "400": {
+                        "description": "Passkey verification failed"
+                    },
+                    "403": {
+                        "description": "Account is not active"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/passkeys/register/begin/": {
+            "get": {
+                "operationId": "auth_passkeys_register_begin",
+                "description": "Begin passkey registration for authenticated user. Requires Bearer token and session cookie for register complete.",
+                "parameters": [],
+                "responses": {
+                    "200": {
+                        "description": "PublicKeyCredentialCreationOptions"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    },
+                    "500": {
+                        "description": "Failed to begin registration"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
+        "/auth/passkeys/register/complete/": {
+            "post": {
+                "operationId": "auth_passkeys_register_complete",
+                "description": "Complete passkey registration. Requires Bearer token and session cookie from register begin.",
+                "parameters": [
+                    {
+                        "name": "data",
+                        "in": "body",
+                        "required": true,
+                        "schema": {
+                            "required": [
+                                "id",
+                                "rawId",
+                                "response",
+                                "type"
+                            ],
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string"
+                                },
+                                "rawId": {
+                                    "type": "string"
+                                },
+                                "type": {
+                                    "type": "string",
+                                    "example": "public-key"
+                                },
+                                "key_name": {
+                                    "type": "string"
+                                },
+                                "response": {
+                                    "type": "object",
+                                    "properties": {
+                                        "attestationObject": {
+                                            "type": "string"
+                                        },
+                                        "clientDataJSON": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Registration successful"
+                    },
+                    "400": {
+                        "description": "Registration failed"
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "tags": [
+                    "auth"
+                ]
+            },
+            "parameters": []
+        },
         "/auth/password-reset-confirm/": {
             "post": {
                 "operationId": "auth_password-reset-confirm_create",
