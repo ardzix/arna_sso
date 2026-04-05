@@ -27,6 +27,15 @@ from .wa_views import (
     WAReverseSendOTPView,
 )
 
+from .passkeys_api_views import (
+    PasskeyRegisterBeginView,
+    PasskeyRegisterCompleteView,
+    PasskeyLoginBeginView,
+    PasskeyLoginCompleteView,
+    PasskeyListView,
+    PasskeyDeleteView,
+)
+
 urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
@@ -58,4 +67,15 @@ urlpatterns = [
     path('wa/reverse/register-request/', WAReverseRegisterRequestView.as_view(), name='wa_reverse_register_request'),
     path('wa/reverse/send-otp/', WAReverseSendOTPView.as_view(), name='wa_reverse_send_otp'),
     # Note: verify endpoints use the same as regular WA (WAVerifyLinkView, WARegisterVerifyView, WAVerifyOTPView)
+    
+    # Passkeys API Endpoints
+    # Registration (requires JWT Bearer token)
+    path('passkeys/register/begin/', PasskeyRegisterBeginView.as_view(), name='passkey_register_begin'),
+    path('passkeys/register/complete/', PasskeyRegisterCompleteView.as_view(), name='passkey_register_complete'),
+    # Login (no auth required — returns JWT on success, skips MFA)
+    path('passkeys/login/begin/', PasskeyLoginBeginView.as_view(), name='passkey_login_begin'),
+    path('passkeys/login/complete/', PasskeyLoginCompleteView.as_view(), name='passkey_login_complete'),
+    # Key management (requires JWT)
+    path('passkeys/', PasskeyListView.as_view(), name='passkey_list'),
+    path('passkeys/<int:pk>/', PasskeyDeleteView.as_view(), name='passkey_delete'),
 ]

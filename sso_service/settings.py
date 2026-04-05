@@ -67,24 +67,26 @@ ALLOWED_HOSTS = _env_list("ALLOWED_HOSTS", "localhost,127.0.0.1")
 # Application definition
 
 INSTALLED_APPS = [
-    "django.contrib.admin",
-    "django.contrib.auth",
-    "django.contrib.contenttypes",
-    "django.contrib.sessions",
-    "django.contrib.messages",
-    "django.contrib.staticfiles",
-    "django_extensions",
-    "corsheaders",
-    "rest_framework",
-    "authentication",
-    "authorization",
-    "iam",
-    "organization",
-    "user_profile",
-    "audit_logging",
-    "oauth_provider",
-    "drf_yasg",
-    "django_q",
+    'django.contrib.admin',
+    'django.contrib.auth',
+    'django.contrib.contenttypes',
+    'django.contrib.sessions',
+    'django.contrib.messages',
+    'django.contrib.staticfiles',
+    'django_extensions',
+    'corsheaders',
+    'rest_framework',  # For REST APIs
+    # 'django_grpc_framework',  # For gRPC APIs
+    'authentication',
+    'authorization',
+    'iam',
+    'organization',
+    'user_profile',
+    'audit_logging',
+    'oauth_provider',
+    'drf_yasg',
+    'django_q',
+    'passkeys',
 ]
 
 # Optional: django_grpc_framework hanya jika paket grpc terpasang (mis. Windows opsional).
@@ -189,6 +191,21 @@ STATICFILES_FINDERS = (
 DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 AUTH_USER_MODEL = "authentication.User"
+
+AUTHENTICATION_BACKENDS = [
+    'django.contrib.auth.backends.ModelBackend',  # Default Backend (for email/password)
+    # 'passkeys.backend.PasskeyModelBackend',  # Disabled: Our API views handle passkeys directly
+]
+
+import passkeys
+FIDO_SERVER_ID = os.getenv('FIDO_SERVER_ID', 'localhost')  # Must match the domain clients use
+FIDO_SERVER_NAME = os.getenv('FIDO_SERVER_NAME', 'Arna SSO')
+KEY_ATTACHMENT = None  # Allow both platform (Face ID/Windows Hello) AND cross-platform (YubiKey)
+
+# Session cookie settings so FIDO2 challenge survives begin→complete round-trip
+# (The session holds the challenge state between the two API calls)
+SESSION_COOKIE_SAMESITE = os.getenv('SESSION_COOKIE_SAMESITE', 'Lax')  # Use 'None' for cross-origin prod
+SESSION_COOKIE_SECURE = os.getenv('SESSION_COOKIE_SECURE', 'False') == 'True'  # True in HTTPS prod
 
 SWAGGER_SETTINGS = {
     "USE_SESSION_AUTH": False,
