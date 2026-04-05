@@ -341,3 +341,9 @@ if CORS_ALLOW_ALL_ORIGINS and CORS_ALLOW_CREDENTIALS:
         "Invalid CORS config: CORS_ALLOW_ALL_ORIGINS cannot be true when "
         "CORS_ALLOW_CREDENTIALS is true. Use explicit CORS_ALLOWED_ORIGINS."
     )
+
+# Keep third-party passkeys migrations persistent in this repository
+# so container rebuilds do not require ad-hoc makemigrations.
+MIGRATION_MODULES = {
+    "passkeys": "sso_service.passkeys_migrations",
+}
