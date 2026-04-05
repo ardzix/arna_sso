@@ -12,17 +12,11 @@ Registration flow (authenticated user adds a passkey to their account):
 Session note: the FIDO2 challenge is stored in request.session between begin and complete.
 The browser automatically sends the session cookie, just like it does for Google OAuth flows.
 """
-import json
-import traceback
+import logging
 
 from django.conf import settings
-from django.http import JsonResponse
-
-# fido2 library (installed as a dependency of django-passkeys)
-from fido2.server import Fido2Server
 from fido2.utils import websafe_decode, websafe_encode
 from fido2.webauthn import (
-    PublicKeyCredentialRpEntity,
     AttestedCredentialData,
 )
 
@@ -39,12 +33,16 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
-from authentication.models import User
 from authentication.serializers import MyTokenObtainPairSerializer
 from authentication.signals import user_logged_in
 from user_profile.models import UserProfile
 
 from base64 import urlsafe_b64encode
+
+
+logger = logging.getLogger(__name__)
+REGISTER_STATE_KEY = "fido2_register_state"
+LOGIN_STATE_KEY = "fido2_login_state"
 
 
 # ---------------------------------------------------------------------------
@@ -126,12 +124,13 @@ class PasskeyRegisterBeginView(APIView):
                 _get_user_credentials(request.user),
                 authenticator_attachment=auth_attachment,
             )
-            request.session['fido2_state'] = state
+            request.session[REGISTER_STATE_KEY] = state
             request.session.save()
             return Response(dict(registration_data), status=status.HTTP_200_OK)
-        except Exception as exc:
+        except Exception:
+            logger.exception("Passkey register begin failed")
             return Response(
-                {"error": "Failed to begin registration", "detail": str(exc)},
+                {"error": "Failed to begin registration"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -187,7 +186,7 @@ class PasskeyRegisterCompleteView(APIView):
         }
     )
     def post(self, request):
-        if 'fido2_state' not in request.session:
+        if REGISTER_STATE_KEY not in request.session:
             return Response(
                 {"error": "No active registration session. Please call /register/begin/ first."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -199,10 +198,11 @@ class PasskeyRegisterCompleteView(APIView):
             data = request.data.copy() if hasattr(request.data, 'copy') else dict(request.data)
             key_name = data.pop('key_name', '') if isinstance(data, dict) else ''
 
-            state = request.session.pop('fido2_state')
+            state = request.session.pop(REGISTER_STATE_KEY)
             auth_data = server.register_complete(state, response=data)
 
             encoded = websafe_encode(auth_data.credential_data)
+            credential_id = websafe_encode(auth_data.credential_data.credential_id)
             platform = get_current_platform(request)
             display_name = key_name or platform
 
@@ -211,17 +211,16 @@ class PasskeyRegisterCompleteView(APIView):
                 token=encoded,
                 name=display_name,
                 platform=platform,
+                credential_id=credential_id,
             )
-            if isinstance(data, dict) and data.get('id'):
-                uk.credential_id = data['id']
             uk.save()
 
             return Response({"status": "OK", "key_name": display_name}, status=status.HTTP_200_OK)
 
-        except Exception as exc:
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Passkey register complete failed")
             return Response(
-                {"error": "Registration failed", "detail": str(exc)},
+                {"error": "Registration failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
@@ -271,12 +270,13 @@ class PasskeyLoginBeginView(APIView):
             enable_json_mapping()
             server = getServer(request)
             auth_data, state = server.authenticate_begin()
-            request.session['fido2_state'] = state
+            request.session[LOGIN_STATE_KEY] = state
             request.session.save()
             return Response(dict(auth_data), status=status.HTTP_200_OK)
-        except Exception as exc:
+        except Exception:
+            logger.exception("Passkey login begin failed")
             return Response(
-                {"error": "Failed to begin login", "detail": str(exc)},
+                {"error": "Failed to begin login"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -346,7 +346,7 @@ class PasskeyLoginCompleteView(APIView):
         }
     )
     def post(self, request):
-        if 'fido2_state' not in request.session:
+        if LOGIN_STATE_KEY not in request.session:
             return Response(
                 {"error": "No active login session. Please call /login/begin/ first."},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -366,20 +366,29 @@ class PasskeyLoginCompleteView(APIView):
             keys = UserPasskey.objects.filter(credential_id=credential_id, enabled=True)
             if not keys.exists():
                 return Response(
-                    {"error": "Unknown passkey credential. Have you registered this device?"},
+                    {"error": "Passkey verification failed"},
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
             key = keys.first()
             credentials = [AttestedCredentialData(websafe_decode(key.token))]
 
-            state = request.session.pop('fido2_state')
+            state = request.session.pop(LOGIN_STATE_KEY)
 
             # Verify the assertion — raises on failure
             server.authenticate_complete(state, credentials=credentials, response=data)
 
             # ✅ Assertion verified — issue JWT (skip MFA)
             user = key.user
+            if not user.is_active:
+                return Response(
+                    {
+                        "error": (
+                            "Account is not active. Please verify your email/phone first."
+                        )
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
             refresh = MyTokenObtainPairSerializer.get_token(user)
 
             # Emit audit signal
@@ -406,10 +415,10 @@ class PasskeyLoginCompleteView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        except Exception as exc:
-            traceback.print_exc()
+        except Exception:
+            logger.exception("Passkey login complete failed")
             return Response(
-                {"error": "Passkey verification failed", "detail": str(exc)},
+                {"error": "Passkey verification failed"},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
