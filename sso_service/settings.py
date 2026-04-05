@@ -42,6 +42,10 @@ def _env_list(name: str, default: str) -> list:
     return [x.strip() for x in raw.split(",") if x.strip()]
 
 
+def _normalize_origin(value: str) -> str:
+    return value.strip().rstrip("/")
+
+
 # Hanya untuk build image (collectstatic, dll.): tanpa .env, tanpa PEM JWT di context build.
 # Runtime wajib unset + SECRET_KEY + JWT keys seperti biasa.
 _collectstatic_build = _env_bool("DJANGO_COLLECTSTATIC_BUILD", False) or (
@@ -325,3 +329,15 @@ N8N_WEBHOOK_ID = os.getenv("N8N_WEBHOOK_ID", "")
 N8N_WEBHOOK_AUTH_TOKEN = os.getenv("N8N_WEBHOOK_AUTH_TOKEN", "")
 
 CORS_ALLOW_ALL_ORIGINS = _env_bool("CORS_ALLOW_ALL_ORIGINS", default=False)
+CORS_ALLOW_CREDENTIALS = _env_bool("CORS_ALLOW_CREDENTIALS", default=False)
+CORS_ALLOWED_ORIGINS = [
+    _normalize_origin(origin)
+    for origin in _env_list("CORS_ALLOWED_ORIGINS", "")
+    if _normalize_origin(origin)
+]
+
+if CORS_ALLOW_ALL_ORIGINS and CORS_ALLOW_CREDENTIALS:
+    raise ImproperlyConfigured(
+        "Invalid CORS config: CORS_ALLOW_ALL_ORIGINS cannot be true when "
+        "CORS_ALLOW_CREDENTIALS is true. Use explicit CORS_ALLOWED_ORIGINS."
+    )
