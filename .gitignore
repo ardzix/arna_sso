@@ -51,6 +51,7 @@ celerybeat-schedule
 # Environments
 .env
 .env.*
+!.env.example
 
 # Keys
 *.pem

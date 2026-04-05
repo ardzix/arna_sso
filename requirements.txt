@@ -49,3 +49,4 @@ urllib3==2.2.2
 user-agents
 uWSGI==2.0.26
 wcwidth==0.2.13
+whitenoise==6.8.2

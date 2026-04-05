@@ -10,6 +10,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = [
             'id',
             'user',
+            'full_name',
             'user_name',
             'bio',
             'profile_picture',
