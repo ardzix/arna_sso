@@ -4,7 +4,7 @@ from rest_framework.decorators import action
 from rest_framework.response import Response
 from django.contrib.auth.models import AnonymousUser
 from django.db.models import Q
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -300,22 +300,39 @@ class OrganizationViewSet(viewsets.ModelViewSet):
         """
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        
-        with transaction.atomic():
-            user = request.user
-            if 'owner' not in serializer.validated_data:
-                org = serializer.save(owner=user)
-            else:
-                org = serializer.save()
-            
-            # AUTOMATICALLY CREATE MEMBERSHIP FOR OWNER
-            member, created = OrganizationMember.objects.get_or_create(user=user, organization=org)
-            
-            # SET AS ACTIVE SESSION (atomic operation - deactivate others and activate this one)
-            OrganizationMember.objects.filter(user=user).update(is_session_active=False)
-            member.refresh_from_db()
-            member.is_session_active = True
-            member.save(update_fields=['is_session_active'])
+
+        user = request.user
+        try:
+            with transaction.atomic():
+                # Lock user row to serialize session switching for this user.
+                user.__class__.objects.select_for_update().filter(pk=user.pk).exists()
+
+                if 'owner' not in serializer.validated_data:
+                    org = serializer.save(owner=user)
+                else:
+                    org = serializer.save()
+
+                # Deactivate all active sessions first to satisfy unique_active_session_per_user.
+                OrganizationMember.objects.filter(
+                    user=user,
+                    is_session_active=True
+                ).update(is_session_active=False)
+
+                # Create owner membership with inactive default to avoid unique-index race.
+                member, _ = OrganizationMember.objects.get_or_create(
+                    user=user,
+                    organization=org,
+                    defaults={'is_session_active': False},
+                )
+
+                if not member.is_session_active:
+                    member.is_session_active = True
+                    member.save(update_fields=['is_session_active'])
+        except IntegrityError:
+            return Response(
+                {"error": "Failed to activate organization session. Please retry."},
+                status=status.HTTP_409_CONFLICT
+            )
         
         # Generate New Tokens with updated org context
         from authentication.serializers import MyTokenObtainPairSerializer
@@ -328,6 +345,5 @@ class OrganizationViewSet(viewsets.ModelViewSet):
             "access": str(refresh.access_token),
             "refresh": str(refresh)
         }, status=status.HTTP_201_CREATED)
-
 
 

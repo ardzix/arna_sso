@@ -6,6 +6,47 @@ from authentication.models import User
 from .models import Organization, OrganizationMember
 from iam.models import Role, UserRole, Permission
 
+
+class OrganizationCreateSessionTests(TestCase):
+    def setUp(self):
+        self.client = APIClient()
+        self.user = User.objects.create_user(email='owner2@example.com', password='password123')
+
+        self.existing_org = Organization.objects.create(
+            name="Existing Org",
+            owner=self.user,
+            package_type="Basic",
+        )
+        OrganizationMember.objects.create(
+            user=self.user,
+            organization=self.existing_org,
+            is_session_active=True,
+        )
+        self.create_url = reverse('organizations-list')
+
+    def test_create_organization_when_user_already_has_active_session(self):
+        self.client.force_authenticate(user=self.user)
+        payload = {
+            "name": "New Org",
+            "package_type": "Basic",
+        }
+
+        response = self.client.post(self.create_url, payload, format='json')
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+        # A second organization should be created successfully.
+        self.assertEqual(Organization.objects.filter(owner=self.user).count(), 2)
+
+        # Only one active session should remain and it should be the newly created org.
+        active_sessions = OrganizationMember.objects.filter(
+            user=self.user,
+            is_session_active=True,
+        )
+        self.assertEqual(active_sessions.count(), 1)
+        self.assertEqual(active_sessions.first().organization.name, "New Org")
+
+
 class OrganizationMemberViewSetTests(TestCase):
     def setUp(self):
         self.client = APIClient()
