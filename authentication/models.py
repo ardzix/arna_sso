@@ -1,8 +1,10 @@
 import uuid
 import pyotp
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
+from urllib.parse import urlparse
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -78,3 +80,50 @@ class User(AbstractBaseUser, PermissionsMixin):
     def get_short_name(self):
         """Return the email as the short name."""
         return self.email
+
+
+class CorsAllowedOrigin(models.Model):
+    origin = models.CharField(max_length=255, unique=True)
+    is_active = models.BooleanField(default=True)
+    notes = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("origin",)
+        verbose_name = "CORS Allowed Origin"
+        verbose_name_plural = "CORS Allowed Origins"
+
+    @staticmethod
+    def _is_valid_origin(value: str) -> bool:
+        parsed = urlparse(value)
+        if parsed.scheme not in {"http", "https"}:
+            return False
+        if not parsed.netloc:
+            return False
+        if parsed.path not in {"", "/"}:
+            return False
+        if parsed.params or parsed.query or parsed.fragment:
+            return False
+        return True
+
+    def clean(self):
+        origin = (self.origin or "").strip().rstrip("/")
+        if not self._is_valid_origin(origin):
+            raise ValidationError(
+                {
+                    "origin": (
+                        "Invalid origin format. Use scheme + host only, e.g. "
+                        "'https://app.example.com' (optional port allowed)."
+                    )
+                }
+            )
+        self.origin = origin
+
+    def save(self, *args, **kwargs):
+        self.origin = (self.origin or "").strip().rstrip("/")
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.origin} ({'active' if self.is_active else 'inactive'})"

@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User
+from .models import User, CorsAllowedOrigin
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -41,3 +41,12 @@ class UserAdmin(BaseUserAdmin):
             'fields': ('email', 'password1', 'password2', 'is_active', 'is_staff', 'mfa_enabled'),
         }),
     )
+
+
+@admin.register(CorsAllowedOrigin)
+class CorsAllowedOriginAdmin(admin.ModelAdmin):
+    list_display = ("origin", "is_active", "updated_at")
+    list_filter = ("is_active", "updated_at")
+    search_fields = ("origin", "notes")
+    readonly_fields = ("created_at", "updated_at")
+    fields = ("origin", "is_active", "notes", "created_at", "updated_at")
