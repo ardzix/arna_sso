@@ -1,9 +1,13 @@
 from rest_framework import serializers
 from authentication.models import User
 from rest_framework_simplejwt.serializers import TokenObtainPairSerializer
+from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 from rest_framework_simplejwt.tokens import RefreshToken
 from organization.models import OrganizationMember
 from iam.models import Permission
+from django.contrib.auth import get_user_model
+
+AuthUser = get_user_model()
 
 class UserSerializer(serializers.ModelSerializer):
     class Meta:
@@ -154,3 +158,32 @@ class PreAuthTokenSerializer(serializers.Serializer):
         token.set_exp(lifetime=settings.SIMPLE_JWT['PRE_AUTH_TOKEN_LIFETIME'])
         
         return str(token)
+
+
+class MyTokenRefreshSerializer(TokenRefreshSerializer):
+    """
+    Refresh serializer that always rehydrates org/role/permission claims
+    from the latest active organization session.
+    """
+    def validate(self, attrs):
+        # Keep built-in validation behavior (invalid/expired/blacklist handling).
+        data = super().validate(attrs)
+
+        # Resolve user from provided refresh token.
+        incoming_refresh = RefreshToken(attrs["refresh"])
+        user_id = incoming_refresh.get("user_id")
+        user = AuthUser.objects.filter(id=user_id).first()
+        if not user:
+            return data
+
+        # Re-issue tokens with current org context from DB.
+        # This ensures org claims reflect latest active session after org switching.
+        fresh_refresh = MyTokenObtainPairSerializer.get_token(user)
+        data["access"] = str(fresh_refresh.access_token)
+
+        # Keep compatibility with ROTATE_REFRESH_TOKENS behavior:
+        # if response expects refresh token, return one with updated claims too.
+        if "refresh" in data:
+            data["refresh"] = str(fresh_refresh)
+
+        return data

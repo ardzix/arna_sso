@@ -9,7 +9,7 @@ from rest_framework_simplejwt.tokens import UntypedToken
 from django.contrib.auth import authenticate
 from django.utils.timezone import now
 from authentication.models import User
-from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer, PreAuthTokenSerializer
+from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer, PreAuthTokenSerializer, MyTokenRefreshSerializer
 from datetime import timedelta
 from .libs.utils import generate_otp
 from .signals import send_otp_email
@@ -160,6 +160,7 @@ class RefreshTokenView(TokenRefreshView):
     """
     This view will handle refreshing access tokens.
     """
+    serializer_class = MyTokenRefreshSerializer
 
     """
     This view will handle refreshing access tokens.
