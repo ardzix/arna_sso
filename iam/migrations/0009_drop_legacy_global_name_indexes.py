@@ -1,4 +1,4 @@
-"""Drop legacy global unique indexes for IAM name columns."""
+"""Drop legacy global unique constraints/indexes for IAM name columns."""
 
 from django.db import migrations
 
@@ -12,11 +12,17 @@ class Migration(migrations.Migration):
 
     operations = [
         migrations.RunSQL(
-            sql="DROP INDEX IF EXISTS iam_role_name_key;",
+            sql="""
+            ALTER TABLE iam_role DROP CONSTRAINT IF EXISTS iam_role_name_key;
+            DROP INDEX IF EXISTS iam_role_name_key;
+            """,
             reverse_sql=migrations.RunSQL.noop,
         ),
         migrations.RunSQL(
-            sql="DROP INDEX IF EXISTS iam_permission_name_key;",
+            sql="""
+            ALTER TABLE iam_permission DROP CONSTRAINT IF EXISTS iam_permission_name_key;
+            DROP INDEX IF EXISTS iam_permission_name_key;
+            """,
             reverse_sql=migrations.RunSQL.noop,
         ),
     ]
