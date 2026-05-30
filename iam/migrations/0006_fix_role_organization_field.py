@@ -4,15 +4,10 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
-def add_organization_column_if_missing(apps, schema_editor):
-    """
-    Add organization column to iam_role if it doesn't exist.
-    This handles cases where migration 0001 didn't run properly.
-    """
+def _column_exists(schema_editor, table_name, column_name):
+    """Return True when the target column already exists."""
     db_connection = schema_editor.connection
-    
-    # Check if column exists
-    column_exists = False
+
     try:
         with db_connection.cursor() as cursor:
             if db_connection.vendor == 'postgresql':
@@ -25,31 +20,38 @@ def add_organization_column_if_missing(apps, schema_editor):
                     );
                 """)
                 result = cursor.fetchone()
-                column_exists = result[0] if result else False
-            elif db_connection.vendor == 'sqlite':
+                return bool(result[0]) if result else False
+            if db_connection.vendor == 'sqlite':
                 cursor.execute("""
                     PRAGMA table_info(iam_role);
                 """)
                 columns = [row[1] for row in cursor.fetchall()]
-                column_exists = 'organization_id' in columns
-            else:
-                column_exists = False
-    except Exception as e:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.warning(f"Could not check if column exists: {str(e)}")
-        column_exists = False
-    
-    if column_exists:
-        # Column already exists, skip
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info("Column organization_id already exists in iam_role, skipping.")
+                return 'organization_id' in columns
+            return False
+    except Exception:
+        return False
+
+
+def add_organization_column_if_missing(apps, schema_editor):
+    """Add organization_id column only when absent to keep migration idempotent."""
+    if _column_exists(schema_editor, "iam_role", "organization_id"):
         return
-    
-    import logging
-    logger = logging.getLogger(__name__)
-    logger.info("Column organization_id does not exist, will be added by AddField operation.")
+
+    db_connection = schema_editor.connection
+    if db_connection.vendor == "postgresql":
+        sql = (
+            "ALTER TABLE iam_role "
+            "ADD COLUMN organization_id uuid NULL "
+            "REFERENCES organization_organization(id) "
+            "DEFERRABLE INITIALLY DEFERRED"
+        )
+    elif db_connection.vendor == "sqlite":
+        sql = "ALTER TABLE iam_role ADD COLUMN organization_id char(32) NULL"
+    else:
+        raise RuntimeError(f"Unsupported DB vendor for migration: {db_connection.vendor}")
+
+    with db_connection.cursor() as cursor:
+        cursor.execute(sql)
 
 
 class Migration(migrations.Migration):
@@ -60,20 +62,25 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(
-            add_organization_column_if_missing,
-            reverse_code=migrations.RunPython.noop,
-        ),
-        # Add field - will fail gracefully if column already exists
-        migrations.AddField(
-            model_name='role',
-            name='organization',
-            field=models.ForeignKey(
-                null=True,  # Allow NULL for backward compatibility
-                blank=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                related_name='roles',
-                to='organization.organization'
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    add_organization_column_if_missing,
+                    reverse_code=migrations.RunPython.noop,
+                )
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='role',
+                    name='organization',
+                    field=models.ForeignKey(
+                        null=True,  # Allow NULL for backward compatibility
+                        blank=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        related_name='roles',
+                        to='organization.organization'
+                    ),
+                ),
+            ],
         ),
     ]

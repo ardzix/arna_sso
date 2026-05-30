@@ -5,15 +5,10 @@ from django.db import migrations, models
 import django.db.models.deletion
 
 
-def check_and_add_column_safely(apps, schema_editor):
-    """
-    Check if organization_member_id column exists, if not, it will be added by AddField operation.
-    This function is just for logging/safety checks.
-    """
+def _column_exists(schema_editor, table_name, column_name):
+    """Return True when the given column already exists on the target table."""
     db_connection = schema_editor.connection
-    
-    # Check if column exists
-    column_exists = False
+
     try:
         with db_connection.cursor() as cursor:
             if db_connection.vendor == 'postgresql':
@@ -26,28 +21,38 @@ def check_and_add_column_safely(apps, schema_editor):
                     );
                 """)
                 result = cursor.fetchone()
-                column_exists = result[0] if result else False
-            elif db_connection.vendor == 'sqlite':
+                return bool(result[0]) if result else False
+            if db_connection.vendor == 'sqlite':
                 cursor.execute("""
                     PRAGMA table_info(iam_userrole);
                 """)
                 columns = [row[1] for row in cursor.fetchall()]
-                column_exists = 'organization_member_id' in columns
-            else:
-                column_exists = False
+                return 'organization_member_id' in columns
+            return False
     except Exception:
-        column_exists = False
-    
-    if column_exists:
-        # Column already exists, skip AddField operation
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info("Column organization_member_id already exists in iam_userrole.")
-        # We'll still run AddField but it should handle the duplicate gracefully
+        return False
+
+
+def add_organization_member_column_if_missing(apps, schema_editor):
+    """Add organization_member_id column only when absent for idempotent migration."""
+    if _column_exists(schema_editor, "iam_userrole", "organization_member_id"):
+        return
+
+    db_connection = schema_editor.connection
+    if db_connection.vendor == "postgresql":
+        sql = (
+            "ALTER TABLE iam_userrole "
+            "ADD COLUMN organization_member_id uuid NULL "
+            "REFERENCES organization_organizationmember(id) "
+            "DEFERRABLE INITIALLY DEFERRED"
+        )
+    elif db_connection.vendor == "sqlite":
+        sql = "ALTER TABLE iam_userrole ADD COLUMN organization_member_id char(32) NULL"
     else:
-        import logging
-        logger = logging.getLogger(__name__)
-        logger.info("Column organization_member_id does not exist, will be added.")
+        raise RuntimeError(f"Unsupported DB vendor for migration: {db_connection.vendor}")
+
+    with db_connection.cursor() as cursor:
+        cursor.execute(sql)
 
 
 class Migration(migrations.Migration):
@@ -58,19 +63,24 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.RunPython(
-            check_and_add_column_safely,
-            reverse_code=migrations.RunPython.noop,
-        ),
-        # Add field - will fail gracefully if column already exists
-        migrations.AddField(
-            model_name='userrole',
-            name='organization_member',
-            field=models.ForeignKey(
-                null=True,  # Allow NULL temporarily for existing rows
-                blank=True,
-                on_delete=django.db.models.deletion.CASCADE,
-                to='organization.organizationmember'
-            ),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    add_organization_member_column_if_missing,
+                    reverse_code=migrations.RunPython.noop,
+                )
+            ],
+            state_operations=[
+                migrations.AddField(
+                    model_name='userrole',
+                    name='organization_member',
+                    field=models.ForeignKey(
+                        null=True,  # Allow NULL temporarily for existing rows
+                        blank=True,
+                        on_delete=django.db.models.deletion.CASCADE,
+                        to='organization.organizationmember'
+                    ),
+                ),
+            ],
         ),
     ]

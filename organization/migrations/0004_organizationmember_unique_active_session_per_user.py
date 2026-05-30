@@ -4,6 +4,49 @@ from django.conf import settings
 from django.db import migrations, models
 
 
+def add_constraint_if_missing(apps, schema_editor):
+    """Add the active-session unique constraint only when it does not exist."""
+    db_connection = schema_editor.connection
+    exists = False
+
+    try:
+        with db_connection.cursor() as cursor:
+            if db_connection.vendor == "postgresql":
+                cursor.execute(
+                    """
+                    SELECT EXISTS (
+                        SELECT 1 FROM pg_constraint
+                        WHERE conname = 'unique_active_session_per_user'
+                    );
+                    """
+                )
+                result = cursor.fetchone()
+                exists = bool(result[0]) if result else False
+            elif db_connection.vendor == "sqlite":
+                cursor.execute(
+                    """
+                    SELECT name FROM sqlite_master
+                    WHERE type='index' AND name='unique_active_session_per_user';
+                    """
+                )
+                exists = cursor.fetchone() is not None
+    except Exception:
+        exists = False
+
+    if exists:
+        return
+
+    organization_member = apps.get_model("organization", "OrganizationMember")
+    schema_editor.add_constraint(
+        organization_member,
+        models.UniqueConstraint(
+            fields=["user"],
+            condition=models.Q(is_session_active=True),
+            name="unique_active_session_per_user",
+        ),
+    )
+
+
 class Migration(migrations.Migration):
 
     dependencies = [
@@ -12,8 +55,22 @@ class Migration(migrations.Migration):
     ]
 
     operations = [
-        migrations.AddConstraint(
-            model_name='organizationmember',
-            constraint=models.UniqueConstraint(condition=models.Q(('is_session_active', True)), fields=('user',), name='unique_active_session_per_user'),
+        migrations.SeparateDatabaseAndState(
+            database_operations=[
+                migrations.RunPython(
+                    add_constraint_if_missing,
+                    reverse_code=migrations.RunPython.noop,
+                )
+            ],
+            state_operations=[
+                migrations.AddConstraint(
+                    model_name="organizationmember",
+                    constraint=models.UniqueConstraint(
+                        condition=models.Q(("is_session_active", True)),
+                        fields=("user",),
+                        name="unique_active_session_per_user",
+                    ),
+                )
+            ],
         ),
     ]
