@@ -625,7 +625,11 @@ class WAReverseSendOTPView(APIView):
         # Check cooldown
         if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
             return Response(
-                {"message": "OTP data has been sent to n8n. Please wait before requesting again."},
+                {
+                    "message": "OTP data has been sent to n8n. Please wait before requesting again.",
+                    "phone": phone,
+                    "method": "reverse",
+                },
                 status=status.HTTP_200_OK
             )
         
@@ -640,6 +644,10 @@ class WAReverseSendOTPView(APIView):
         async_task(send_otp_to_n8n, phone, otp)
         
         return Response(
-            {"message": "OTP data has been sent to n8n. Please initiate chat via WhatsApp link."},
+            {
+                "message": "OTP data has been sent to n8n. Please initiate chat via WhatsApp link.",
+                "phone": phone,
+                "method": "reverse",
+            },
             status=status.HTTP_200_OK
         )
