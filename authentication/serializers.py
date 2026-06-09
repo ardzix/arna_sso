@@ -30,6 +30,9 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        token['email'] = user.email
+        token['phone_number'] = user.phone_number or ""
+        token['phone_verified'] = bool(user.phone_verified)
 
         try:
             # Optimize query dengan select_related dan prefetch_related untuk avoid N+1 queries
@@ -139,6 +142,7 @@ class WAReverseRegisterRequestSerializer(serializers.Serializer):
 
 class WAReverseSendOTPSerializer(serializers.Serializer):
     phone = serializers.CharField()
+    email = serializers.EmailField(required=False, allow_blank=True)
 
 class PreAuthTokenSerializer(serializers.Serializer):
     """

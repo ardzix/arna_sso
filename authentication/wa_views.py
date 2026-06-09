@@ -592,6 +592,7 @@ class WAReverseSendOTPView(APIView):
         
         phone_raw = serializer.validated_data['phone']
         phone = normalize_phone_number(phone_raw)
+        email = serializer.validated_data.get('email', '').strip()
         
         if not phone:
             return Response(
@@ -605,7 +606,7 @@ class WAReverseSendOTPView(APIView):
         # If user doesn't exist, auto-register
         if not user:
             # Generate placeholder email
-            email = f"wa_{phone}@arnatech.local"
+            email = email or f"wa_{phone}@arnatech.local"
             
             # Check if email already exists (edge case)
             if User.objects.filter(email=email).exists():
@@ -617,6 +618,9 @@ class WAReverseSendOTPView(APIView):
             user.is_active = False
             user.phone_number = phone
             user.phone_verified = False
+        elif email and user.email.endswith("@arnatech.local") and not User.objects.filter(email=email).exclude(id=user.id).exists():
+            user.email = email
+            user.save(update_fields=["email"])
         
         # Check cooldown
         if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
@@ -639,4 +643,3 @@ class WAReverseSendOTPView(APIView):
             {"message": "OTP data has been sent to n8n. Please initiate chat via WhatsApp link."},
             status=status.HTTP_200_OK
         )
-
