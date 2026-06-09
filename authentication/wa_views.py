@@ -624,9 +624,17 @@ class WAReverseSendOTPView(APIView):
         
         # Check cooldown
         if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
+            if user.otp and user.otp_expiration and user.otp_expiration > now():
+                try:
+                    send_otp_to_n8n(phone, user.otp)
+                except Exception:
+                    return Response(
+                        {"error": "Unable to prepare WhatsApp OTP verification. Please try again."},
+                        status=status.HTTP_502_BAD_GATEWAY,
+                    )
             return Response(
                 {
-                    "message": "OTP data has been sent to n8n. Please wait before requesting again.",
+                    "message": "Existing OTP data has been sent to n8n. Please wait before requesting a new OTP.",
                     "phone": phone,
                     "method": "reverse",
                 },
@@ -640,8 +648,14 @@ class WAReverseSendOTPView(APIView):
         user.last_otp_sent = now()
         user.save()
         
-        # Send OTP data to n8n webhook (reverse method - user must initiate chat)
-        async_task(send_otp_to_n8n, phone, otp)
+        # Only report success after n8n acknowledges the workflow.
+        try:
+            send_otp_to_n8n(phone, otp)
+        except Exception:
+            return Response(
+                {"error": "Unable to prepare WhatsApp OTP verification. Please try again."},
+                status=status.HTTP_502_BAD_GATEWAY,
+            )
         
         return Response(
             {
