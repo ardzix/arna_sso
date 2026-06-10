@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, CorsAllowedOrigin
+from .models import User, CorsAllowedOrigin, ServiceAccount
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -50,3 +50,11 @@ class CorsAllowedOriginAdmin(admin.ModelAdmin):
     search_fields = ("origin", "notes")
     readonly_fields = ("created_at", "updated_at")
     fields = ("origin", "is_active", "notes", "created_at", "updated_at")
+
+
+@admin.register(ServiceAccount)
+class ServiceAccountAdmin(admin.ModelAdmin):
+    list_display = ("name", "client_id", "organization_id", "is_active", "updated_at")
+    list_filter = ("is_active",)
+    search_fields = ("name", "client_id", "organization_id")
+    readonly_fields = ("id", "client_secret_hash", "created_at", "updated_at")

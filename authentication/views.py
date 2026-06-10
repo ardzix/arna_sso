@@ -4,11 +4,12 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import RefreshToken
+from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import UntypedToken
 from django.contrib.auth import authenticate
 from django.utils.timezone import now
-from authentication.models import User
+from authentication.models import ServiceAccount, User
 from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer, PreAuthTokenSerializer, MyTokenRefreshSerializer
 from datetime import timedelta
 from .libs.utils import generate_otp
@@ -35,6 +36,28 @@ from authentication.signals import (
 )
 from google.oauth2 import id_token
 from google.auth.transport import requests
+
+
+class ServiceTokenView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def post(self, request):
+        client_id = str(request.data.get("client_id", "")).strip()
+        client_secret = str(request.data.get("client_secret", ""))
+        service = ServiceAccount.objects.filter(client_id=client_id, is_active=True).first()
+        if not service or not service.check_client_secret(client_secret):
+            return Response({"error": "Invalid client credentials."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        token = AccessToken()
+        token.set_exp(lifetime=timedelta(minutes=settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
+        token["principal_type"] = "service"
+        token["service_id"] = str(service.id)
+        token["client_id"] = service.client_id
+        token["org_id"] = str(service.organization_id) if service.organization_id else None
+        token["scopes"] = service.scopes
+        token["aud"] = "storage"
+        return Response({"access": str(token), "token_type": "Bearer", "expires_in": settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]  # Allow unauthenticated users to register

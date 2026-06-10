@@ -14,6 +14,7 @@ from .views import (
     PasswordResetConfirmView,
     ChangePasswordView, GoogleLoginView, ManageUserView,
     DisableMFAView,
+    ServiceTokenView,
 )
 from .wa_views import (
     WASendLinkOTPView,
@@ -37,6 +38,7 @@ from .passkeys_api_views import (
 )
 
 urlpatterns = [
+    path('service-token/', ServiceTokenView.as_view(), name='service_token'),
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),

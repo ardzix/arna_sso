@@ -1,6 +1,7 @@
 import uuid
 import pyotp
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
+from django.contrib.auth.hashers import check_password, make_password
 from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
@@ -127,3 +128,24 @@ class CorsAllowedOrigin(models.Model):
 
     def __str__(self):
         return f"{self.origin} ({'active' if self.is_active else 'inactive'})"
+
+
+class ServiceAccount(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=120)
+    client_id = models.CharField(max_length=120, unique=True)
+    client_secret_hash = models.CharField(max_length=255)
+    organization_id = models.UUIDField(null=True, blank=True)
+    scopes = models.JSONField(default=list, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def set_client_secret(self, raw_secret):
+        self.client_secret_hash = make_password(raw_secret)
+
+    def check_client_secret(self, raw_secret):
+        return check_password(raw_secret, self.client_secret_hash)
+
+    def __str__(self):
+        return self.name

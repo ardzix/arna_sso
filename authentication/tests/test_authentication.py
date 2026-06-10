@@ -1,7 +1,8 @@
 from django.urls import reverse
 from rest_framework.test import APITestCase
 from rest_framework import status
-from authentication.models import User
+from authentication.models import ServiceAccount, User
+from rest_framework_simplejwt.tokens import UntypedToken
 from rest_framework_simplejwt.tokens import RefreshToken
 import pyotp
 
@@ -97,3 +98,33 @@ class AuthenticationTests(APITestCase):
         response = self.client.post(self.logout_url, {'refresh': refresh_token}, format='json')
         print(response)
         self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
+
+    def test_service_account_client_credentials(self):
+        service = ServiceAccount(name="Career", client_id="arna-career", scopes=["storage.files.create"])
+        service.set_client_secret("test-secret")
+        service.save()
+
+        response = self.client.post(
+            reverse("service_token"),
+            {"client_id": "arna-career", "client_secret": "test-secret"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        token = UntypedToken(response.data["access"])
+        self.assertEqual(token["principal_type"], "service")
+        self.assertEqual(token["service_id"], str(service.id))
+        self.assertEqual(token["scopes"], ["storage.files.create"])
+
+    def test_service_account_rejects_invalid_secret(self):
+        service = ServiceAccount(name="Career", client_id="arna-career")
+        service.set_client_secret("test-secret")
+        service.save()
+
+        response = self.client.post(
+            reverse("service_token"),
+            {"client_id": "arna-career", "client_secret": "wrong"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
