@@ -622,16 +622,23 @@ class WAReverseSendOTPView(APIView):
             user.email = email
             user.save(update_fields=["email"])
         
-        # Check cooldown
-        if user.last_otp_sent and now() - user.last_otp_sent < timedelta(minutes=5):
-            if user.otp and user.otp_expiration and user.otp_expiration > now():
-                try:
-                    send_otp_to_n8n(phone, user.otp)
-                except Exception:
-                    return Response(
-                        {"error": "Unable to prepare WhatsApp OTP verification. Please try again."},
-                        status=status.HTTP_502_BAD_GATEWAY,
-                    )
+        # Only reuse a cooldown OTP while it still exists and is valid. A
+        # successful verification clears user.otp, so returning success here
+        # would make n8n resend a stale OTP that SSO can no longer verify.
+        if (
+            user.last_otp_sent
+            and now() - user.last_otp_sent < timedelta(minutes=5)
+            and user.otp
+            and user.otp_expiration
+            and user.otp_expiration > now()
+        ):
+            try:
+                send_otp_to_n8n(phone, user.otp)
+            except Exception:
+                return Response(
+                    {"error": "Unable to prepare WhatsApp OTP verification. Please try again."},
+                    status=status.HTTP_502_BAD_GATEWAY,
+                )
             return Response(
                 {
                     "message": "Existing OTP data has been sent to n8n. Please wait before requesting a new OTP.",
