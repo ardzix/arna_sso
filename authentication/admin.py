@@ -1,6 +1,6 @@
 from django.contrib import admin
 from django.contrib.auth.admin import UserAdmin as BaseUserAdmin
-from .models import User, CorsAllowedOrigin, ServiceAccount
+from .models import User, CorsAllowedOrigin, ServiceAccount, SSOAuthorizationCode
 
 @admin.register(User)
 class UserAdmin(BaseUserAdmin):
@@ -58,3 +58,22 @@ class ServiceAccountAdmin(admin.ModelAdmin):
     list_filter = ("is_active",)
     search_fields = ("name", "client_id", "organization_id")
     readonly_fields = ("id", "client_secret_hash", "created_at", "updated_at")
+
+
+@admin.register(SSOAuthorizationCode)
+class SSOAuthorizationCodeAdmin(admin.ModelAdmin):
+    list_display = ("client_id", "user", "redirect_uri", "expires_at", "used_at")
+    list_filter = ("client_id", "expires_at", "used_at")
+    search_fields = ("client_id", "redirect_uri", "user__email")
+    readonly_fields = (
+        "id",
+        "code_hash",
+        "user",
+        "client_id",
+        "redirect_uri",
+        "code_challenge",
+        "code_challenge_method",
+        "created_at",
+        "expires_at",
+        "used_at",
+    )

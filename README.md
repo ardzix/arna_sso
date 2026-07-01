@@ -77,6 +77,8 @@ openssl rsa -pubout -in private.pem -out public.pem
 | `SESSION_COOKIE_SECURE` | Set `True` in HTTPS production | `False` |
 | `ACCESS_TOKEN_LIFETIME_MINUTES` | JWT access token lifetime | `5` |
 | `REFRESH_TOKEN_LIFETIME_DAYS` | JWT refresh token lifetime | `1` |
+| `SSO_ALLOWED_REDIRECT_URIS` | Comma-separated exact callback URLs allowed to receive SSO authorization codes | — |
+| `SSO_AUTH_CODE_LIFETIME_SECONDS` | One-time SSO authorization code lifetime | `300` |
 | `WAHA_API_URL` | WhatsApp WAHA API base URL | — |
 | `WAHA_API_KEY` | WhatsApp WAHA API key | — |
 | `N8N_WEBHOOK_URL` | n8n webhook base URL (reverse WA OTP) | — |
@@ -187,6 +189,50 @@ Frontend must use:
 | `POST` | `/api/auth/passkeys/register/complete/` | JWT + cookie | Store passkey |
 | `GET` | `/api/auth/passkeys/` | JWT | List registered passkeys |
 | `DELETE` | `/api/auth/passkeys/<id>/` | JWT | Delete a passkey |
+
+### Cross-Domain SSO Bridge
+
+Use this flow when the product domain is not under the passkey RP ID, for example
+`sales.ourlilstudio.com`. The product redirects the browser to the SSO UI on
+`sso.arnatech.id`; passkey authentication happens there, then SSO returns a
+short-lived one-time code to the product callback.
+
+| Method | Endpoint | Auth | Description |
+|--------|----------|------|-------------|
+| `POST` | `/api/auth/sso/authorize-code/` | JWT | Create a one-time code after login on SSO |
+| `POST` | `/api/auth/sso/token/` | — | Exchange code + PKCE verifier for JWT tokens |
+
+Configure exact callback URLs:
+
+```env
+SSO_ALLOWED_REDIRECT_URIS=https://sales.ourlilstudio.com/auth/callback
+SSO_AUTH_CODE_LIFETIME_SECONDS=300
+```
+
+Authorize-code request:
+
+```json
+{
+  "client_id": "ols-mp",
+  "redirect_uri": "https://sales.ourlilstudio.com/auth/callback",
+  "code_challenge": "<PKCE S256 challenge>",
+  "code_challenge_method": "S256",
+  "state": "<opaque-csrf-state>"
+}
+```
+
+The response includes `redirect_url`; send the browser there. The product
+backend then exchanges the returned `code`:
+
+```json
+{
+  "grant_type": "authorization_code",
+  "client_id": "ols-mp",
+  "redirect_uri": "https://sales.ourlilstudio.com/auth/callback",
+  "code": "<code-from-query-string>",
+  "code_verifier": "<original-PKCE-verifier>"
+}
+```
 
 ### WhatsApp OTP
 

@@ -1,4 +1,6 @@
 import uuid
+import hashlib
+import secrets
 import pyotp
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin, BaseUserManager
 from django.contrib.auth.hashers import check_password, make_password
@@ -149,3 +151,72 @@ class ServiceAccount(models.Model):
 
     def __str__(self):
         return self.name
+
+
+class SSOAuthorizationCode(models.Model):
+    CODE_CHALLENGE_METHODS = (
+        ("S256", "S256"),
+        ("plain", "plain"),
+    )
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    code_hash = models.CharField(max_length=64, unique=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="sso_auth_codes")
+    client_id = models.CharField(max_length=120)
+    redirect_uri = models.URLField(max_length=500)
+    code_challenge = models.CharField(max_length=128)
+    code_challenge_method = models.CharField(
+        max_length=10,
+        choices=CODE_CHALLENGE_METHODS,
+        default="S256",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField()
+    used_at = models.DateTimeField(null=True, blank=True)
+
+    class Meta:
+        ordering = ("-created_at",)
+        indexes = [
+            models.Index(fields=("client_id", "redirect_uri")),
+            models.Index(fields=("expires_at",)),
+        ]
+
+    @staticmethod
+    def hash_code(code):
+        return hashlib.sha256(code.encode("utf-8")).hexdigest()
+
+    @classmethod
+    def create_for_user(
+        cls,
+        *,
+        user,
+        client_id,
+        redirect_uri,
+        code_challenge,
+        code_challenge_method,
+        expires_at,
+    ):
+        code = secrets.token_urlsafe(48)
+        instance = cls.objects.create(
+            code_hash=cls.hash_code(code),
+            user=user,
+            client_id=client_id,
+            redirect_uri=redirect_uri,
+            code_challenge=code_challenge,
+            code_challenge_method=code_challenge_method,
+            expires_at=expires_at,
+        )
+        return code, instance
+
+    def is_expired(self):
+        return self.expires_at <= timezone.now()
+
+    def is_used(self):
+        return self.used_at is not None
+
+    def mark_used(self):
+        self.used_at = timezone.now()
+        self.save(update_fields=["used_at"])
+
+    def __str__(self):
+        return f"{self.client_id} -> {self.redirect_uri}"

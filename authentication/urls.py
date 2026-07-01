@@ -36,8 +36,11 @@ from .passkeys_api_views import (
     PasskeyListView,
     PasskeyDeleteView,
 )
+from .sso_views import SSOAuthorizeCodeView, SSOTokenExchangeView
 
 urlpatterns = [
+    path('sso/authorize-code/', SSOAuthorizeCodeView.as_view(), name='sso_authorize_code'),
+    path('sso/token/', SSOTokenExchangeView.as_view(), name='sso_token_exchange'),
     path('service-token/', ServiceTokenView.as_view(), name='service_token'),
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
