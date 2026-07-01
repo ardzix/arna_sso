@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Arna SSO Login</title>
+    <style>
+        :root {
+            color-scheme: light;
+            --bg: #f7f8fb;
+            --panel: #ffffff;
+            --text: #172033;
+            --muted: #637083;
+            --line: #d8deea;
+            --primary: #0d6efd;
+            --primary-dark: #084db5;
+            --danger: #b42318;
+            --ok: #067647;
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            margin: 0;
+            min-height: 100vh;
+            display: grid;
+            place-items: center;
+            padding: 24px;
+            background: var(--bg);
+            color: var(--text);
+            font-family: Arial, Helvetica, sans-serif;
+        }
+
+        main {
+            width: min(100%, 420px);
+            background: var(--panel);
+            border: 1px solid var(--line);
+            border-radius: 8px;
+            padding: 28px;
+            box-shadow: 0 16px 44px rgba(23, 32, 51, 0.08);
+        }
+
+        h1 {
+            margin: 0 0 8px;
+            font-size: 24px;
+            line-height: 1.25;
+        }
+
+        p {
+            margin: 0 0 22px;
+            color: var(--muted);
+            line-height: 1.45;
+        }
+
+        label {
+            display: block;
+            margin: 14px 0 6px;
+            font-size: 14px;
+            font-weight: 700;
+        }
+
+        input {
+            width: 100%;
+            height: 42px;
+            border: 1px solid var(--line);
+            border-radius: 6px;
+            padding: 0 12px;
+            font-size: 15px;
+        }
+
+        button {
+            width: 100%;
+            min-height: 42px;
+            border: 0;
+            border-radius: 6px;
+            padding: 10px 14px;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+        }
+
+        button:disabled {
+            cursor: not-allowed;
+            opacity: 0.65;
+        }
+
+        .primary {
+            margin-top: 18px;
+            background: var(--primary);
+            color: #fff;
+        }
+
+        .primary:hover:not(:disabled) {
+            background: var(--primary-dark);
+        }
+
+        .secondary {
+            margin-top: 10px;
+            background: #edf3ff;
+            color: var(--primary-dark);
+        }
+
+        .divider {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin: 22px 0 8px;
+            color: var(--muted);
+            font-size: 13px;
+        }
+
+        .divider::before,
+        .divider::after {
+            content: "";
+            flex: 1;
+            height: 1px;
+            background: var(--line);
+        }
+
+        .status {
+            margin-top: 16px;
+            min-height: 20px;
+            color: var(--muted);
+            font-size: 14px;
+            line-height: 1.4;
+        }
+
+        .error {
+            color: var(--danger);
+        }
+
+        .success {
+            color: var(--ok);
+        }
+
+        .hidden {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <main>
+        <h1>Arna SSO</h1>
+        <p>Sign in to continue.</p>
+
+        <button id="passkeyButton" class="secondary" type="button">Continue with passkey</button>
+
+        <div class="divider">or</div>
+
+        <form id="passwordForm">
+            <label for="email">Email</label>
+            <input id="email" name="email" type="email" autocomplete="username" required>
+
+            <label for="password">Password</label>
+            <input id="password" name="password" type="password" autocomplete="current-password" required>
+
+            <section id="mfaSection" class="hidden">
+                <label for="mfaToken">MFA code</label>
+                <input id="mfaToken" name="mfa_token" type="text" inputmode="numeric" autocomplete="one-time-code">
+            </section>
+
+            <button id="passwordButton" class="primary" type="submit">Continue</button>
+        </form>
+
+        <div id="status" class="status" role="status"></div>
+    </main>
+
+    <script>
+        const params = new URLSearchParams(window.location.search);
+        const requiredParams = [
+            "client_id",
+            "redirect_uri",
+            "state",
+            "code_challenge",
+            "code_challenge_method",
+        ];
+        const statusBox = document.getElementById("status");
+        const passkeyButton = document.getElementById("passkeyButton");
+        const passwordButton = document.getElementById("passwordButton");
+        const passwordForm = document.getElementById("passwordForm");
+        const mfaSection = document.getElementById("mfaSection");
+        let preAuthToken = null;
+
+        function setStatus(message, type) {
+            statusBox.textContent = message || "";
+            statusBox.className = "status" + (type ? " " + type : "");
+        }
+
+        function setBusy(isBusy) {
+            passkeyButton.disabled = isBusy;
+            passwordButton.disabled = isBusy;
+        }
+
+        function base64UrlToBuffer(value) {
+            const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
+            const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, "=");
+            const binary = atob(padded);
+            const bytes = new Uint8Array(binary.length);
+            for (let i = 0; i < binary.length; i += 1) {
+                bytes[i] = binary.charCodeAt(i);
+            }
+            return bytes.buffer;
+        }
+
+        function bufferToBase64Url(buffer) {
+            const bytes = new Uint8Array(buffer);
+            let binary = "";
+            for (let i = 0; i < bytes.byteLength; i += 1) {
+                binary += String.fromCharCode(bytes[i]);
+            }
+            return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
+        }
+
+        function credentialToJSON(credential) {
+            return {
+                id: credential.id,
+                rawId: bufferToBase64Url(credential.rawId),
+                type: credential.type,
+                response: {
+                    authenticatorData: bufferToBase64Url(credential.response.authenticatorData),
+                    clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
+                    signature: bufferToBase64Url(credential.response.signature),
+                    userHandle: credential.response.userHandle
+                        ? bufferToBase64Url(credential.response.userHandle)
+                        : null,
+                },
+            };
+        }
+
+        function normalizeRequestOptions(options) {
+            const publicKey = options.publicKey || options;
+            publicKey.challenge = base64UrlToBuffer(publicKey.challenge);
+            publicKey.allowCredentials = (publicKey.allowCredentials || []).map((item) => ({
+                ...item,
+                id: base64UrlToBuffer(item.id),
+            }));
+            return publicKey;
+        }
+
+        function validateParams() {
+            const missing = requiredParams.filter((key) => !params.get(key));
+            if (missing.length) {
+                setStatus("Missing SSO parameter: " + missing.join(", "), "error");
+                setBusy(true);
+                return false;
+            }
+            return true;
+        }
+
+        async function postJSON(url, body, token) {
+            const headers = {"Content-Type": "application/json"};
+            if (token) {
+                headers.Authorization = "Bearer " + token;
+            }
+            const response = await fetch(url, {
+                method: "POST",
+                headers,
+                credentials: "include",
+                body: JSON.stringify(body),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                throw new Error(data.error || data.detail || "Request failed");
+            }
+            return data;
+        }
+
+        async function authorizeAndRedirect(accessToken) {
+            setStatus("Completing SSO redirect...", "");
+            const data = await postJSON("/api/auth/sso/authorize-code/", {
+                client_id: params.get("client_id"),
+                redirect_uri: params.get("redirect_uri"),
+                code_challenge: params.get("code_challenge"),
+                code_challenge_method: params.get("code_challenge_method"),
+                state: params.get("state"),
+            }, accessToken);
+            window.location.assign(data.redirect_url);
+        }
+
+        async function loginWithPasskey() {
+            if (!validateParams()) {
+                return;
+            }
+            setBusy(true);
+            try {
+                setStatus("Waiting for passkey...", "");
+                const beginResponse = await fetch("/api/auth/passkeys/login/begin/", {
+                    credentials: "include",
+                });
+                const beginData = await beginResponse.json();
+                if (!beginResponse.ok) {
+                    throw new Error(beginData.error || "Could not start passkey login");
+                }
+                const credential = await navigator.credentials.get({
+                    publicKey: normalizeRequestOptions(beginData),
+                });
+                const loginData = await postJSON(
+                    "/api/auth/passkeys/login/complete/",
+                    credentialToJSON(credential)
+                );
+                await authorizeAndRedirect(loginData.access);
+            } catch (error) {
+                setStatus(error.message, "error");
+                setBusy(false);
+            }
+        }
+
+        async function loginWithPassword(event) {
+            event.preventDefault();
+            if (!validateParams()) {
+                return;
+            }
+            setBusy(true);
+            try {
+                if (preAuthToken) {
+                    const mfaToken = document.getElementById("mfaToken").value;
+                    const mfaData = await postJSON("/api/auth/mfa/verify/", {
+                        token: preAuthToken,
+                        mfa_token: mfaToken,
+                    });
+                    await authorizeAndRedirect(mfaData.access);
+                    return;
+                }
+
+                const loginData = await postJSON("/api/auth/login/", {
+                    email: document.getElementById("email").value,
+                    password: document.getElementById("password").value,
+                });
+                if (loginData.mfa_required) {
+                    preAuthToken = loginData.token;
+                    mfaSection.classList.remove("hidden");
+                    document.getElementById("mfaToken").required = true;
+                    passwordButton.textContent = "Verify MFA";
+                    setStatus("Enter your MFA code.", "");
+                    setBusy(false);
+                    return;
+                }
+                await authorizeAndRedirect(loginData.access);
+            } catch (error) {
+                setStatus(error.message, "error");
+                setBusy(false);
+            }
+        }
+
+        passkeyButton.addEventListener("click", loginWithPasskey);
+        passwordForm.addEventListener("submit", loginWithPassword);
+        validateParams();
+    </script>
+</body>
+</html>

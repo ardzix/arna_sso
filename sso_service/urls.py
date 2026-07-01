@@ -4,6 +4,7 @@ from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from drf_yasg import openapi
 from authentication.views import homepage
+from authentication.sso_views import sso_login_page
 from authentication.admin_mfa import patch_admin_site
 
 patch_admin_site()
@@ -22,6 +23,7 @@ schema_view = get_schema_view(
 
 urlpatterns = [
     path('admin/', admin.site.urls),
+    path('login/', sso_login_page, name='sso_login_page'),
     path('api/auth/', include('authentication.urls')),
     path('api/organizations/', include('organization.urls')),
     path('api/', include('user_profile.urls')),

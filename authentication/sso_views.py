@@ -3,6 +3,7 @@ import hashlib
 from urllib.parse import urlencode
 
 from django.conf import settings
+from django.shortcuts import render
 from django.utils import timezone
 from django.utils.crypto import constant_time_compare
 from rest_framework import serializers, status
@@ -15,6 +16,10 @@ from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
 from authentication.serializers import MyTokenObtainPairSerializer
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
+
+
+def sso_login_page(request):
+    return render(request, "sso_login.html")
 
 
 class SSOAuthorizeSerializer(serializers.Serializer):
