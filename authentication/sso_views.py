@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
 
-from authentication.models import SSOAuthorizationCode
+from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
 from authentication.serializers import MyTokenObtainPairSerializer
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
@@ -46,12 +46,12 @@ class SSOTokenExchangeSerializer(serializers.Serializer):
         return value
 
 
-def _allowed_redirect_uris():
-    return set(getattr(settings, "SSO_ALLOWED_REDIRECT_URIS", []))
-
-
-def _is_redirect_allowed(redirect_uri):
-    return redirect_uri in _allowed_redirect_uris()
+def _is_redirect_allowed(client_id, redirect_uri):
+    return SSOAllowedRedirectURI.objects.filter(
+        client_id=client_id,
+        redirect_uri=redirect_uri,
+        is_active=True,
+    ).exists() or redirect_uri in set(getattr(settings, "SSO_ALLOWED_REDIRECT_URIS", []))
 
 
 def _challenge_from_verifier(verifier, method):
@@ -85,7 +85,7 @@ class SSOAuthorizeCodeView(APIView):
             )
 
         redirect_uri = data["redirect_uri"]
-        if not _is_redirect_allowed(redirect_uri):
+        if not _is_redirect_allowed(data["client_id"], redirect_uri):
             return Response(
                 {"error": "redirect_uri is not allowed"},
                 status=status.HTTP_400_BAD_REQUEST,
@@ -135,7 +135,7 @@ class SSOTokenExchangeView(APIView):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if not _is_redirect_allowed(data["redirect_uri"]):
+        if not _is_redirect_allowed(data["client_id"], data["redirect_uri"]):
             return Response(
                 {"error": "redirect_uri is not allowed"},
                 status=status.HTTP_400_BAD_REQUEST,

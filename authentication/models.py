@@ -132,6 +132,56 @@ class CorsAllowedOrigin(models.Model):
         return f"{self.origin} ({'active' if self.is_active else 'inactive'})"
 
 
+class SSOAllowedRedirectURI(models.Model):
+    client_id = models.CharField(max_length=120)
+    redirect_uri = models.URLField(max_length=500)
+    is_active = models.BooleanField(default=True)
+    notes = models.CharField(max_length=255, blank=True, default="")
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ("client_id", "redirect_uri")
+        unique_together = ("client_id", "redirect_uri")
+        verbose_name = "SSO Allowed Redirect URI"
+        verbose_name_plural = "SSO Allowed Redirect URIs"
+
+    @staticmethod
+    def _is_valid_redirect_uri(value: str) -> bool:
+        parsed = urlparse(value)
+        if parsed.scheme != "https":
+            return False
+        if not parsed.netloc:
+            return False
+        if "*" in parsed.netloc:
+            return False
+        if parsed.fragment:
+            return False
+        return True
+
+    def clean(self):
+        redirect_uri = (self.redirect_uri or "").strip()
+        if not self._is_valid_redirect_uri(redirect_uri):
+            raise ValidationError(
+                {
+                    "redirect_uri": (
+                        "Invalid redirect URI. Use an exact HTTPS URL without "
+                        "wildcards or fragments, e.g. "
+                        "'https://sales.example.com/auth/callback'."
+                    )
+                }
+            )
+        self.redirect_uri = redirect_uri
+        self.client_id = (self.client_id or "").strip()
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f"{self.client_id} -> {self.redirect_uri}"
+
+
 class ServiceAccount(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=120)

@@ -77,7 +77,7 @@ openssl rsa -pubout -in private.pem -out public.pem
 | `SESSION_COOKIE_SECURE` | Set `True` in HTTPS production | `False` |
 | `ACCESS_TOKEN_LIFETIME_MINUTES` | JWT access token lifetime | `5` |
 | `REFRESH_TOKEN_LIFETIME_DAYS` | JWT refresh token lifetime | `1` |
-| `SSO_ALLOWED_REDIRECT_URIS` | Comma-separated exact callback URLs allowed to receive SSO authorization codes | — |
+| `SSO_ALLOWED_REDIRECT_URIS` | Optional bootstrap/fallback comma-separated exact callback URLs; DB rows are preferred | — |
 | `SSO_AUTH_CODE_LIFETIME_SECONDS` | One-time SSO authorization code lifetime | `300` |
 | `WAHA_API_URL` | WhatsApp WAHA API base URL | — |
 | `WAHA_API_KEY` | WhatsApp WAHA API key | — |
@@ -202,7 +202,16 @@ short-lived one-time code to the product callback.
 | `POST` | `/api/auth/sso/authorize-code/` | JWT | Create a one-time code after login on SSO |
 | `POST` | `/api/auth/sso/token/` | — | Exchange code + PKCE verifier for JWT tokens |
 
-Configure exact callback URLs:
+Configure exact callback URLs in Django admin under
+**Authentication → SSO Allowed Redirect URIs**:
+
+| Field | Value |
+|-------|-------|
+| `client_id` | `ols-mp` |
+| `redirect_uri` | `https://sales.ourlilstudio.com/auth/callback` |
+| `is_active` | `true` |
+
+An optional env fallback is still supported for bootstrapping:
 
 ```env
 SSO_ALLOWED_REDIRECT_URIS=https://sales.ourlilstudio.com/auth/callback
