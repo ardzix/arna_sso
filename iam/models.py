@@ -57,4 +57,44 @@ class UserPermission(models.Model):
     organization_member = models.ForeignKey('organization.OrganizationMember', on_delete=models.CASCADE)
     assigned_at = models.DateTimeField(auto_now_add=True)
 
-    
+
+class ProductProvisioning(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        'organization.Organization', on_delete=models.CASCADE, related_name='product_provisionings'
+    )
+    product_key = models.SlugField(max_length=80)
+    catalog_version = models.PositiveIntegerField(default=1)
+    manifest_hash = models.CharField(max_length=64)
+    service_client_id = models.CharField(max_length=120)
+    provisioned_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ('organization', 'product_key')
+
+
+class ProductManagedRole(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        'organization.Organization', on_delete=models.CASCADE, related_name='product_managed_roles'
+    )
+    product_key = models.SlugField(max_length=80)
+    managed_key = models.SlugField(max_length=80)
+    role = models.OneToOneField(Role, on_delete=models.CASCADE, related_name='product_management')
+    catalog_version = models.PositiveIntegerField(default=1)
+
+    class Meta:
+        unique_together = ('organization', 'product_key', 'managed_key')
+
+
+class ProductProvisioningEvent(models.Model):
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization = models.ForeignKey(
+        'organization.Organization', on_delete=models.CASCADE, related_name='product_provisioning_events'
+    )
+    product_key = models.SlugField(max_length=80)
+    catalog_version = models.PositiveIntegerField()
+    service_client_id = models.CharField(max_length=120)
+    result = models.JSONField(default=dict)
+    created_at = models.DateTimeField(auto_now_add=True)
+
