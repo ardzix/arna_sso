@@ -10,6 +10,8 @@ __pycache__
 *.py[cod]
 *.sqlite3
 *.pem
+!public.pem
+!private.pem
 *.key
 *.log
 .pytest_cache
