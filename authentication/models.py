@@ -189,7 +189,6 @@ class ServiceAccount(models.Model):
     client_secret_hash = models.CharField(max_length=255)
     organization_id = models.UUIDField(null=True, blank=True)
     scopes = models.JSONField(default=list, blank=True)
-    audiences = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

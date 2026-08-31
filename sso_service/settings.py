@@ -251,7 +251,6 @@ REST_FRAMEWORK = {
         "user": "1000/day",
         "mfa_verify": "5/minute",
         "login_attempt": "10/minute",
-        "iam_catalog_provision": "30/minute",
     },
 }
 
@@ -261,9 +260,6 @@ _jwt_lifetime_access = _env_int("JWT_ACCESS_TOKEN_LIFETIME_MINUTES", 5)
 _jwt_lifetime_refresh = _env_int("JWT_REFRESH_TOKEN_LIFETIME_DAYS", 1)
 _jwt_pre_auth_minutes = _env_int("PRE_AUTH_TOKEN_LIFETIME_MINUTES", 5)
 SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES = _env_int("SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES", 5)
-IAM_PRODUCT_PERMISSION_PREFIXES = {
-    "arnaos": ("arnaos.", "world.", "employee_activity."),
-}
 _jwt_common = {
     "ACCESS_TOKEN_LIFETIME": timedelta(minutes=_jwt_lifetime_access),
     "REFRESH_TOKEN_LIFETIME": timedelta(days=_jwt_lifetime_refresh),

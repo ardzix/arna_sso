@@ -15,7 +15,6 @@ class Command(BaseCommand):
         parser.add_argument("--client-secret", default="")
         parser.add_argument("--organization-id", default="")
         parser.add_argument("--scope", action="append", dest="scopes", default=[])
-        parser.add_argument("--audience", action="append", dest="audiences", default=[])
 
     def handle(self, *args, **options):
         organization_id = options["organization_id"] or None
@@ -32,7 +31,6 @@ class Command(BaseCommand):
         service.name = options["name"] or service.name
         service.organization_id = organization_id
         service.scopes = options["scopes"]
-        service.audiences = options["audiences"] or ["storage"]
         service.is_active = True
         service.set_client_secret(raw_secret)
         service.save()
