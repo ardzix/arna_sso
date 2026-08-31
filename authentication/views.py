@@ -49,6 +49,11 @@ class ServiceTokenView(APIView):
         if not service or not service.check_client_secret(client_secret):
             return Response({"error": "Invalid client credentials."}, status=status.HTTP_401_UNAUTHORIZED)
 
+        audience = str(request.data.get("audience", "storage")).strip() or "storage"
+        allowed_audiences = service.audiences or ["storage"]
+        if audience not in allowed_audiences:
+            return Response({"error": "Audience is not allowed for this service account."}, status=status.HTTP_403_FORBIDDEN)
+
         token = AccessToken()
         token.set_exp(lifetime=timedelta(minutes=settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
         token["principal_type"] = "service"
@@ -56,7 +61,7 @@ class ServiceTokenView(APIView):
         token["client_id"] = service.client_id
         token["org_id"] = str(service.organization_id) if service.organization_id else None
         token["scopes"] = service.scopes
-        token["aud"] = "storage"
+        token["aud"] = audience
         return Response({"access": str(token), "token_type": "Bearer", "expires_in": settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
 
 class RegisterView(APIView):
