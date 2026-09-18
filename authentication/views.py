@@ -55,8 +55,11 @@ class ServiceTokenView(APIView):
         token["service_id"] = str(service.id)
         token["client_id"] = service.client_id
         token["org_id"] = str(service.organization_id) if service.organization_id else None
+        audience = str(request.data.get("audience", "")).strip()
+        if not audience or audience not in service.audiences:
+            return Response({"error": "A configured audience is required."}, status=status.HTTP_400_BAD_REQUEST)
         token["scopes"] = service.scopes
-        token["aud"] = "storage"
+        token["aud"] = audience
         return Response({"access": str(token), "token_type": "Bearer", "expires_in": settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
 
 class RegisterView(APIView):
