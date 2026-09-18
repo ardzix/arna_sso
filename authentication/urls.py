@@ -37,11 +37,17 @@ from .passkeys_api_views import (
     PasskeyDeleteView,
 )
 from .sso_views import SSOAuthorizeCodeView, SSOTokenExchangeView
+from .device_views import DeviceAuthorizeView, DeviceVerificationView, DeviceTokenView, DeviceRefreshView, DeviceRevokeView
 
 urlpatterns = [
     path('sso/authorize-code/', SSOAuthorizeCodeView.as_view(), name='sso_authorize_code'),
     path('sso/token/', SSOTokenExchangeView.as_view(), name='sso_token_exchange'),
     path('service-token/', ServiceTokenView.as_view(), name='service_token'),
+    path('device/authorize/', DeviceAuthorizeView.as_view(), name='device_authorize'),
+    path('device/verification/', DeviceVerificationView.as_view(), name='device_verification'),
+    path('device/token/', DeviceTokenView.as_view(), name='device_token'),
+    path('device/refresh/', DeviceRefreshView.as_view(), name='device_refresh'),
+    path('device/revoke/', DeviceRevokeView.as_view(), name='device_revoke'),
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),

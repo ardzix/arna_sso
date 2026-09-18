@@ -271,3 +271,77 @@ class SSOAuthorizationCode(models.Model):
 
     def __str__(self):
         return f"{self.client_id} -> {self.redirect_uri}"
+
+
+class DeviceRegistration(models.Model):
+    """A tenant-bound machine identity approved by an organization member."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    client_id = models.CharField(max_length=120, unique=True)
+    display_name = models.CharField(max_length=120)
+    organization = models.ForeignKey("organization.Organization", on_delete=models.CASCADE)
+    tenant_id = models.UUIDField()
+    audience = models.CharField(max_length=120)
+    scopes = models.JSONField(default=list, blank=True)
+    public_key_thumbprint = models.CharField(max_length=128, blank=True)
+    is_active = models.BooleanField(default=True)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        indexes = [models.Index(fields=("organization", "tenant_id", "is_active"))]
+
+    def __str__(self):
+        return f"{self.display_name} ({self.client_id})"
+
+
+class DeviceAuthorizationGrant(models.Model):
+    """Short-lived, one-time device authorization request used by the OAuth device flow."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    device_code_hash = models.CharField(max_length=64, unique=True)
+    user_code_hash = models.CharField(max_length=64, unique=True)
+    client_id = models.CharField(max_length=120, db_index=True)
+    device_name = models.CharField(max_length=120)
+    tenant_id = models.UUIDField()
+    audience = models.CharField(max_length=120)
+    scopes = models.JSONField(default=list, blank=True)
+    public_key_thumbprint = models.CharField(max_length=128, blank=True)
+    expires_at = models.DateTimeField(db_index=True)
+    interval_seconds = models.PositiveIntegerField(default=5)
+    last_polled_at = models.DateTimeField(null=True, blank=True)
+    approved_registration = models.ForeignKey(DeviceRegistration, null=True, blank=True, on_delete=models.SET_NULL)
+    approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    approved_at = models.DateTimeField(null=True, blank=True)
+    denied_at = models.DateTimeField(null=True, blank=True)
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @staticmethod
+    def hash_secret(value):
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def is_expired(self):
+        return self.expires_at <= timezone.now()
+
+
+class DeviceRefreshCredential(models.Model):
+    """Rotating opaque refresh credential for a device registration."""
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    token_hash = models.CharField(max_length=64, unique=True)
+    registration = models.ForeignKey(DeviceRegistration, on_delete=models.CASCADE, related_name="refresh_credentials")
+    expires_at = models.DateTimeField(db_index=True)
+    used_at = models.DateTimeField(null=True, blank=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    @staticmethod
+    def hash_secret(value):
+        return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+    def is_valid(self):
+        return self.used_at is None and self.revoked_at is None and self.expires_at > timezone.now() and self.registration.is_active
