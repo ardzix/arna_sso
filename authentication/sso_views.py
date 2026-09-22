@@ -11,6 +11,8 @@ from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.authentication import JWTAuthentication
+from drf_yasg import openapi
+from drf_yasg.utils import swagger_auto_schema
 
 from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
 from authentication.serializers import MyTokenObtainPairSerializer
@@ -78,6 +80,23 @@ class SSOAuthorizeCodeView(APIView):
     permission_classes = [IsAuthenticated]
     authentication_classes = [JWTAuthentication]
 
+    @swagger_auto_schema(
+        operation_summary="Browser SSO - create authorization code",
+        operation_description="""Create a short-lived, one-time authorization code protected by PKCE.
+
+**Use it for:** signing a browser user into a registered Arna product without giving the product the user's SSO password.
+
+**Steps:**
+1. Product client creates a cryptographically random PKCE `code_verifier` and S256 `code_challenge`.
+2. After user login at SSO, call this endpoint with the user's bearer token, registered `client_id`, exact registered `redirect_uri`, challenge, and optional `state`.
+3. Redirect the browser to returned `redirect_url`.
+4. Product backend receives `code` and exchanges it once at `/auth/sso/token/` using the original `code_verifier`.
+
+Never exchange codes in browser JavaScript. Validate `state` in the product callback to prevent CSRF.
+""",
+        request_body=SSOAuthorizeSerializer,
+        responses={201: openapi.Response(description="One-time authorization code and callback URL", examples={"application/json": {"code": "opaque-one-time-code", "redirect_url": "https://product.example/callback?code=opaque-one-time-code&state=request-state", "expires_in": 120}}), 400: "Redirect URI is not registered or payload is invalid", 401: "User bearer token required", 403: "User account is not active"},
+    )
     def post(self, request):
         serializer = SSOAuthorizeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -135,6 +154,23 @@ class SSOTokenExchangeView(APIView):
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    @swagger_auto_schema(
+        operation_summary="Browser SSO - exchange authorization code",
+        operation_description="""Exchange a valid, unexpired SSO authorization code for the normal Arna JWT pair.
+
+**Use it for:** the trusted backend endpoint behind a product's registered redirect URI.
+
+**Steps:**
+1. Receive `code` and `state` on the product callback.
+2. Validate the callback `state` against the original browser session.
+3. Send `code`, the original PKCE `code_verifier`, identical `client_id`, and identical registered `redirect_uri` to this endpoint from the product backend.
+4. Store the returned refresh token only in a secure server-side or secure client session according to your product design.
+
+The code is single-use; an invalid verifier, reused code, or changed redirect URI is rejected.
+""",
+        request_body=SSOTokenExchangeSerializer,
+        responses={200: openapi.Response(description="User JWT token pair", examples={"application/json": {"access": "eyJ...", "refresh": "eyJ...", "token_type": "Bearer", "expires_in": 300}}), 400: "Invalid/expired/reused code, redirect URI, or PKCE verifier", 403: "User account is not active"},
+    )
     def post(self, request):
         serializer = SSOTokenExchangeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)

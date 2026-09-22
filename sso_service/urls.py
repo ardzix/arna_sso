@@ -2,21 +2,15 @@ from django.contrib import admin
 from django.urls import path, include
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
-from drf_yasg import openapi
 from authentication.views import homepage
 from authentication.sso_views import sso_login_page
 from authentication.admin_mfa import patch_admin_site
+from sso_service.swagger_info import api_info
 
 patch_admin_site()
 
 schema_view = get_schema_view(
-    openapi.Info(
-        title="SSO Service API",
-        default_version='v1',
-        description="API documentation for the SSO service",
-        contact=openapi.Contact(email="your-email@example.com"),
-        license=openapi.License(name="BSD License"),
-    ),
+    api_info,
     public=True,
     permission_classes=(permissions.AllowAny,),
 )

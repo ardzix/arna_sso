@@ -39,9 +39,35 @@ from google.auth.transport import requests
 
 
 class ServiceTokenView(APIView):
+    """Issue an audience-bound service access token for a configured service account.
+
+    Use this endpoint for server-to-server calls. It is not a user login flow:
+    the resulting token represents the service account, carries its configured
+    scopes and optional organization, and must never be exposed to browsers.
+    """
     permission_classes = [AllowAny]
     authentication_classes = []
 
+    @swagger_auto_schema(
+        operation_summary="Service account token",
+        operation_description="""Exchange configured service-account credentials for a short-lived access token.
+
+**Use it for:** backend jobs, trusted microservices, and CI agents. Do not use it for an interactive user.
+
+**Steps:**
+1. Create/activate a Service Account in Django Admin with its permitted audiences and scopes.
+2. Keep `client_secret` in a server-side secret manager.
+3. POST the credentials and one configured `audience`.
+4. Send the returned value as `Authorization: Bearer <access>` to that audience.
+5. Request a new token after expiry; this endpoint does not return a refresh token.
+""",
+        request_body=openapi.Schema(type=openapi.TYPE_OBJECT, required=["client_id", "client_secret", "audience"], properties={
+            "client_id": openapi.Schema(type=openapi.TYPE_STRING, example="arna-social-ai-backend"),
+            "client_secret": openapi.Schema(type=openapi.TYPE_STRING, format="password"),
+            "audience": openapi.Schema(type=openapi.TYPE_STRING, example="arna_social_ai"),
+        }),
+        responses={200: openapi.Response(description="Service access token", examples={"application/json": {"access": "eyJ...", "token_type": "Bearer", "expires_in": 300}}), 400: "Audience is missing or not configured for this service", 401: "Invalid client credentials"},
+    )
     def post(self, request):
         client_id = str(request.data.get("client_id", "")).strip()
         client_secret = str(request.data.get("client_secret", ""))
