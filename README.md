@@ -243,6 +243,27 @@ backend then exchanges the returned `code`:
 }
 ```
 
+### Device audiences
+
+Kiosks, POS terminals, scanners, and photobooths use Device Authorization
+Grant. `DEVICE_ALLOWED_AUDIENCES` is an explicit comma-separated allowlist;
+the production default is `photobooth-api` when the variable is absent.
+
+```env
+DEVICE_ALLOWED_AUDIENCES=photobooth-api
+```
+
+For a distinct new resource API, add its exact audience rather than using a
+wildcard:
+
+```env
+DEVICE_ALLOWED_AUDIENCES=photobooth-api,new-service-api
+```
+
+The device must request one listed value, and the receiving API must reject
+tokens whose `aud` does not match its own configured audience. Device
+`tenant_id` is always a UUID public tenant identifier, never a database row ID.
+
 ### WhatsApp OTP
 
 | Method | Endpoint | Description |
