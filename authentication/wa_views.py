@@ -343,6 +343,9 @@ class WAVerifyOTPView(APIView):
     Verify OTP and login via WhatsApp.
     """
     permission_classes = [AllowAny]
+    # RajasaNagara proxies resident requests through a shared server IP.
+    # Keep OTP validation and MFA, but do not apply the shared-IP DRF quota.
+    throttle_classes = []
 
     @swagger_auto_schema(
         request_body=WAVerifyOTPSerializer,
@@ -578,6 +581,9 @@ class WAReverseSendOTPView(APIView):
     If phone number is not registered, automatically register the user.
     """
     permission_classes = [AllowAny]
+    # Match WhatsApp verification: the application's shared IP must not
+    # exhaust the anonymous quota for all residents during an election.
+    throttle_classes = []
 
     @swagger_auto_schema(
         request_body=WAReverseSendOTPSerializer,
