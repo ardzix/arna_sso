@@ -188,11 +188,20 @@ class ServiceAccount(models.Model):
     client_id = models.CharField(max_length=120, unique=True)
     client_secret_hash = models.CharField(max_length=255)
     organization_id = models.UUIDField(null=True, blank=True)
+    tenant_id = models.UUIDField(null=True, blank=True)
     scopes = models.JSONField(default=list, blank=True)
     audiences = models.JSONField(default=list, blank=True)
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                check=models.Q(tenant_id__isnull=True) | models.Q(organization_id__isnull=False),
+                name="service_tenant_requires_org",
+            )
+        ]
 
     def set_client_secret(self, raw_secret):
         self.client_secret_hash = make_password(raw_secret)

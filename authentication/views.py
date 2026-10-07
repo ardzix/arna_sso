@@ -87,6 +87,20 @@ class ServiceTokenView(APIView):
             return Response({"error": "A configured audience is required."}, status=status.HTTP_400_BAD_REQUEST)
         token["scopes"] = service.scopes
         token["aud"] = audience
+        if "crm.website_chat" in service.scopes:
+            # Website credentials have one registered tenant and no dashboard grants.
+            # Request-supplied organization/tenant/scope fields are never authority.
+            if (
+                service.scopes != ["crm.website_chat"]
+                or service.audiences != ["arna-crm"]
+                or audience != "arna-crm"
+                or not service.organization_id
+                or not service.tenant_id
+            ):
+                return Response({"error": "Website service registration is incomplete."}, status=status.HTTP_400_BAD_REQUEST)
+            token["token_type"] = "service"
+            token["scope"] = "crm.website_chat"
+            token["tenant_id"] = str(service.tenant_id)
         return Response({"access": str(token), "token_type": "Bearer", "expires_in": settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
 
 class RegisterView(APIView):
