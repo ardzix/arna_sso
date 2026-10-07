@@ -16,6 +16,7 @@ from drf_yasg.utils import swagger_auto_schema
 
 from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
 from authentication.serializers import MyTokenObtainPairSerializer
+from authentication.website_proof import WEBSITE_CLIENT_ID, website_customer_proof
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
@@ -109,6 +110,11 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
             )
 
         redirect_uri = data["redirect_uri"]
+        if data["client_id"] == WEBSITE_CLIENT_ID:
+            if data["code_challenge_method"] != "S256":
+                return Response({"error": "Website verification requires S256 PKCE"}, status=400)
+            if not request.user.phone_verified or not request.user.phone_number:
+                return Response({"error": "Verified phone identity is required"}, status=403)
         if not _is_redirect_allowed(data["client_id"], redirect_uri):
             return Response(
                 {"error": "redirect_uri is not allowed"},
@@ -215,6 +221,21 @@ The code is single-use; an invalid verifier, reused code, or changed redirect UR
                 {"error": "Account is not active. Please verify your email/phone first."},
                 status=status.HTTP_403_FORBIDDEN,
             )
+
+        if data["client_id"] == WEBSITE_CLIENT_ID:
+            if auth_code.code_challenge_method != "S256":
+                return Response({"error": "Website verification requires S256 PKCE"}, status=400)
+            try:
+                proof = website_customer_proof(user)
+            except ValueError:
+                return Response({"error": "Verified phone identity is required"}, status=403)
+            # Consume the website code once even if two exchanges race.
+            consumed = SSOAuthorizationCode.objects.filter(
+                pk=auth_code.pk, used_at__isnull=True, expires_at__gt=timezone.now()
+            ).update(used_at=timezone.now())
+            if not consumed:
+                return Response({"error": "Invalid or expired authorization code"}, status=400)
+            return Response(proof, status=status.HTTP_200_OK)
 
         auth_code.mark_used()
         refresh = MyTokenObtainPairSerializer.get_token(user)
