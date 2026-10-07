@@ -78,6 +78,7 @@ class ServiceTokenView(APIView):
         token = AccessToken()
         token.set_exp(lifetime=timedelta(minutes=settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
         token["principal_type"] = "service"
+        token["iss"] = settings.SIMPLE_JWT.get("ISSUER") or "https://sso.arnatech.id"
         token["service_id"] = str(service.id)
         token["client_id"] = service.client_id
         token["org_id"] = str(service.organization_id) if service.organization_id else None
