@@ -100,13 +100,13 @@ class AuthenticationTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_205_RESET_CONTENT)
 
     def test_service_account_client_credentials(self):
-        service = ServiceAccount(name="Career", client_id="arna-career", scopes=["storage.files.create"])
+        service = ServiceAccount(name="Career", client_id="arna-career", scopes=["storage.files.create"], audiences=["storage"])
         service.set_client_secret("test-secret")
         service.save()
 
         response = self.client.post(
             reverse("service_token"),
-            {"client_id": "arna-career", "client_secret": "test-secret"},
+            {"client_id": "arna-career", "client_secret": "test-secret", "audience": "storage"},
             format="json",
         )
 
@@ -115,6 +115,8 @@ class AuthenticationTests(APITestCase):
         self.assertEqual(token["principal_type"], "service")
         self.assertEqual(token["service_id"], str(service.id))
         self.assertEqual(token["scopes"], ["storage.files.create"])
+        self.assertEqual(token["iss"], "https://sso.arnatech.id")
+        self.assertEqual(token["aud"], "storage")
 
     def test_service_account_rejects_invalid_secret(self):
         service = ServiceAccount(name="Career", client_id="arna-career")
@@ -128,3 +130,26 @@ class AuthenticationTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    def test_service_account_requires_registered_audience_and_active_registration(self):
+        service = ServiceAccount(
+            name="CRM test", client_id="crm-service-test",
+            audiences=["arna-commerce"], scopes=["commerce.entitlements.read:test-crm"],
+        )
+        service.set_client_secret("test-only-secret")
+        service.save()
+        payload = {"client_id": service.client_id, "client_secret": "test-only-secret"}
+        for audience in (None, "storage"):
+            data = dict(payload)
+            if audience is not None:
+                data["audience"] = audience
+            self.assertEqual(self.client.post(reverse("service_token"), data, format="json").status_code, 400)
+        response = self.client.post(reverse("service_token"), {**payload, "audience": "arna-commerce"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        token = UntypedToken(response.data["access"])
+        self.assertEqual(token["aud"], "arna-commerce")
+        self.assertEqual(token["iss"], "https://sso.arnatech.id")
+        self.assertEqual(token["scopes"], service.scopes)
+        service.is_active = False
+        service.save(update_fields=["is_active"])
+        self.assertEqual(self.client.post(reverse("service_token"), {**payload, "audience": "arna-commerce"}, format="json").status_code, 401)
