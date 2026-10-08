@@ -1,6 +1,6 @@
 import base64
 import hashlib
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
 from django.shortcuts import render
@@ -17,6 +17,7 @@ from drf_yasg.utils import swagger_auto_schema
 from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
 from authentication.serializers import MyTokenObtainPairSerializer
 from authentication.website_proof import WEBSITE_CLIENT_ID, website_customer_proof
+from authentication.crm_proof import CRM_CLIENT_ID, crm_dashboard_proof
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
@@ -55,6 +56,12 @@ class SSOTokenExchangeSerializer(serializers.Serializer):
 
 
 def _is_redirect_allowed(client_id, redirect_uri):
+    if client_id == CRM_CLIENT_ID:
+        parsed = urlsplit(redirect_uri)
+        local = settings.DEBUG and parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
+        return SSOAllowedRedirectURI.objects.filter(client_id=client_id, redirect_uri=redirect_uri, is_active=True).exists() or (
+            local and redirect_uri in set(getattr(settings, "SSO_ALLOWED_REDIRECT_URIS", []))
+        )
     return SSOAllowedRedirectURI.objects.filter(
         client_id=client_id,
         redirect_uri=redirect_uri,
@@ -110,6 +117,8 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
             )
 
         redirect_uri = data["redirect_uri"]
+        if data["client_id"] == CRM_CLIENT_ID and data["code_challenge_method"] != "S256":
+            return Response({"error": "CRM requires S256 PKCE"}, status=400)
         if data["client_id"] == WEBSITE_CLIENT_ID:
             if data["code_challenge_method"] != "S256":
                 return Response({"error": "Website verification requires S256 PKCE"}, status=400)
@@ -230,6 +239,17 @@ The code is single-use; an invalid verifier, reused code, or changed redirect UR
             except ValueError:
                 return Response({"error": "Verified phone identity is required"}, status=403)
             # Consume the website code once even if two exchanges race.
+            consumed = SSOAuthorizationCode.objects.filter(
+                pk=auth_code.pk, used_at__isnull=True, expires_at__gt=timezone.now()
+            ).update(used_at=timezone.now())
+            if not consumed:
+                return Response({"error": "Invalid or expired authorization code"}, status=400)
+            return Response(proof, status=status.HTTP_200_OK)
+
+        if data["client_id"] == CRM_CLIENT_ID:
+            if auth_code.code_challenge_method != "S256":
+                return Response({"error": "CRM requires S256 PKCE"}, status=400)
+            proof = crm_dashboard_proof(user)
             consumed = SSOAuthorizationCode.objects.filter(
                 pk=auth_code.pk, used_at__isnull=True, expires_at__gt=timezone.now()
             ).update(used_at=timezone.now())

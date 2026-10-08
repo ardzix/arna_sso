@@ -79,9 +79,9 @@ class SSOAllowedRedirectURIAdmin(admin.ModelAdmin):
 
 @admin.register(ServiceAccount)
 class ServiceAccountAdmin(admin.ModelAdmin):
-    list_display = ("name", "client_id", "organization_id", "is_active", "updated_at")
+    list_display = ("name", "client_id", "organization_id", "tenant_id", "is_active", "updated_at")
     list_filter = ("is_active",)
-    search_fields = ("name", "client_id", "organization_id")
+    search_fields = ("name", "client_id", "organization_id", "tenant_id")
     readonly_fields = ("id", "client_secret_hash", "created_at", "updated_at")
 
 
