@@ -33,7 +33,7 @@ def crm_dashboard_proof(user):
     # A short user delegation to the product owner; no browser-provided scope.
     access["iss"] = issuer
     access["aud"] = "arna-site"
-    url = getattr(settings, "CRM_ARNASITE_TENANTS_URL", "https://site.arnatech.id/api/tenants/")
+    url = getattr(settings, "CRM_ARNASITE_TENANTS_URL", "https://site.arnatech.id/tenants/")
     parsed = urlsplit(url)
     local = settings.DEBUG and parsed.hostname in {"localhost", "127.0.0.1"}
     if parsed.username or parsed.password or not parsed.hostname or (
