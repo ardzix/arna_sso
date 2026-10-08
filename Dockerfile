@@ -1,11 +1,11 @@
-# Use an official Python runtime as a parent image
-FROM python:3.11-slim-bullseye
+# Keep Python 3.11 on supported Debian Bookworm; pin the official multi-platform image.
+FROM python:3.11-slim-bookworm@sha256:0a310eeecf4e1f5a0743f9a6520c90c88d089c903ca5fd283f501e3a805f5f89
 
 # Set the working directory in the container
 WORKDIR /usr/src/app
 
 # Install system dependencies for building Python libraries
-RUN apt-get update && apt-get install -y \
+RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     python3-dev \
     libpq-dev \
@@ -27,7 +27,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Static files (tanpa SECRET_KEY/.env/PEM JWT di image build — lihat DJANGO_COLLECTSTATIC_BUILD di settings)
-RUN python manage.py collectstatic --noinput
+RUN DJANGO_COLLECTSTATIC_BUILD=1 python manage.py collectstatic --noinput
 
 # Set environment variables
 ENV DJANGO_SETTINGS_MODULE=sso_service.settings
