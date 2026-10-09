@@ -213,6 +213,20 @@ class ServiceAccount(models.Model):
         return self.name
 
 
+class TrustedRegistration(models.Model):
+    """Idempotency receipt for service attestations, not membership or login proof."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    service = models.ForeignKey(ServiceAccount, on_delete=models.PROTECT)
+    proof_hash = models.CharField(max_length=64)
+    payload_hash = models.CharField(max_length=64)
+    user = models.ForeignKey(User, on_delete=models.PROTECT)
+    user_created = models.BooleanField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=("service", "proof_hash"), name="trusted_registration_service_proof")]
+
+
 class SSOAuthorizationCode(models.Model):
     CODE_CHALLENGE_METHODS = (
         ("S256", "S256"),

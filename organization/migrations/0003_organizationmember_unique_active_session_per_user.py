@@ -17,19 +17,9 @@ def check_and_add_constraint_safely(apps, schema_editor):
         # Use a new cursor to avoid transaction issues
         with db_connection.cursor() as cursor:
             if db_connection.vendor == 'postgresql':
-                # Check in pg_constraint for the constraint name
-                cursor.execute("""
-                    SELECT EXISTS (
-                        SELECT 1 FROM pg_constraint 
-                        WHERE conname = 'unique_active_session_per_user'
-                        AND conrelid = (
-                            SELECT oid FROM pg_class 
-                            WHERE relname = 'organization_organizationmember'
-                        )
-                    );
-                """)
-                result = cursor.fetchone()
-                constraint_exists = result[0] if result else False
+                # Conditional uniqueness is a partial UNIQUE INDEX, not a
+                # pg_constraint row. Introspection sees both representations.
+                constraint_exists = 'unique_active_session_per_user' in db_connection.introspection.get_constraints(cursor, 'organization_organizationmember')
             elif db_connection.vendor == 'sqlite':
                 # SQLite stores unique constraints as indexes
                 cursor.execute("""

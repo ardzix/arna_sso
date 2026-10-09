@@ -12,16 +12,7 @@ def add_constraint_if_missing(apps, schema_editor):
     try:
         with db_connection.cursor() as cursor:
             if db_connection.vendor == "postgresql":
-                cursor.execute(
-                    """
-                    SELECT EXISTS (
-                        SELECT 1 FROM pg_constraint
-                        WHERE conname = 'unique_active_session_per_user'
-                    );
-                    """
-                )
-                result = cursor.fetchone()
-                exists = bool(result[0]) if result else False
+                exists = "unique_active_session_per_user" in db_connection.introspection.get_constraints(cursor, "organization_organizationmember")
             elif db_connection.vendor == "sqlite":
                 cursor.execute(
                     """

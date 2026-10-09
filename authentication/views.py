@@ -87,6 +87,12 @@ class ServiceTokenView(APIView):
             return Response({"error": "A configured audience is required."}, status=status.HTTP_400_BAD_REQUEST)
         token["scopes"] = service.scopes
         token["aud"] = audience
+        if "sso.whatsapp.register" in service.scopes:
+            if service.scopes != ["sso.whatsapp.register"] or service.audiences != ["arna-sso-registration"] or audience != "arna-sso-registration":
+                return Response({"error": "Registration service must have only its registration scope and audience."}, status=status.HTTP_400_BAD_REQUEST)
+            token["token_type"] = "service"
+            token["scope"] = "sso.whatsapp.register"
+            token.set_exp(lifetime=timedelta(minutes=5))
         if "crm.website_chat" in service.scopes:
             # Website credentials have one registered tenant and no dashboard grants.
             # Request-supplied organization/tenant/scope fields are never authority.
@@ -101,7 +107,8 @@ class ServiceTokenView(APIView):
             token["token_type"] = "service"
             token["scope"] = "crm.website_chat"
             token["tenant_id"] = str(service.tenant_id)
-        return Response({"access": str(token), "token_type": "Bearer", "expires_in": settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
+        expires_in = 300 if service.scopes == ["sso.whatsapp.register"] else settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60
+        return Response({"access": str(token), "token_type": "Bearer", "expires_in": expires_in})
 
 class RegisterView(APIView):
     permission_classes = [AllowAny]  # Allow unauthenticated users to register

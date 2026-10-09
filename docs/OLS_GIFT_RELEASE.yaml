@@ -1,0 +1,42 @@
+release:
+  id: ols-gift-sso-preparation-20261009
+  requested_scope: Registration-only SSO API and inactive n8n integration
+  authorization_reference: User explicitly authorized production rollout with "gas live kan" on 2026-10-09
+  status: release-in-progress
+source:
+  repository: git@github.com:ardzix/arna_sso
+  branch: codex/ols-gift-sso-registration
+  base_commit: a1e2247
+  commit_full: "" # Changes not committed/published
+  related_releases:
+    - repository: git@github.com:ardzix/ols-storefront.git
+      state: local uncommitted claim form and inactive workflow generator
+target:
+  manager_inventory_reference: approved SSH root@arnatech.id
+  stack: sso
+  public_domains: [sso.arnatech.id]
+  running_image_before_change: ardzix/arna_sso:latest@sha256:699579da58ecaf109ffc39b3b83bbdc2434e89faa6a76a78b2fa1a0354468829
+artifact:
+  digest: "" # New release image not built or published
+configuration:
+  credential_references: [OLSGiftSsoReg01]
+  source_of_truth_reference: enrollment via SSO-owned command; raw secret only in encrypted n8n credential
+  production_service_enrolled: false
+  n8n_sso_credential_created: false
+migration:
+  compatibility_and_recovery: Add receipt table; rename existing index without data deletion; old organization migration detection fixes only affect replay
+  production_outcome: pending
+gates:
+  source_and_tests: {outcome: pass, evidence: 27 tests passed on disposable PostgreSQL, framework checks and migration drift checks passed; source remains uncommitted}
+  image_publication: {outcome: pending, evidence: not requested/performed}
+  rollout: {outcome: pending, evidence: no production service modified}
+  public_routes: {outcome: pending, evidence: new API not deployed}
+  live_whatsapp: {outcome: pending, evidence: no WhatsApp messages sent}
+  n8n_and_form: {outcome: pass, evidence: local build and gift tests passed; HTTP tests passed for 13 canonical pages and 193 links; real n8n-to-SSO execution is pending}
+recovery:
+  requested: false
+  outcome: not-applicable; no production rollout
+remaining_actions:
+  - Approve production release, establish SSO pipeline and immutable image, then run migration/rollout gates
+  - Enroll registration-only service and encrypted n8n credential, update inactive gift workflow
+  - Approve gift activation and Vercel publication; verify with an approved operator phone

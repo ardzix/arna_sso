@@ -20,6 +20,8 @@ from dotenv import load_dotenv
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+from sso_service.runtime_secret import load_runtime_secret
+load_runtime_secret()
 load_dotenv(BASE_DIR / ".env")
 
 
@@ -154,6 +156,7 @@ else:
             "PASSWORD": os.getenv("DB_PASSWORD", ""),
             "HOST": os.getenv("DB_HOST", "localhost"),
             "PORT": os.getenv("DB_PORT", "5432"),
+            "OPTIONS": {"connect_timeout": _env_int("DB_CONNECT_TIMEOUT_SECONDS", 5)},
         }
     }
 
