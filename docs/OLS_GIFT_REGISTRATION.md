@@ -1,6 +1,6 @@
 # OLS gift identity registration
 
-Status: implementation prepared; not published or deployed. No customer identities were created by testing.
+Status: production API and n8n integration active since 2026-10-09, after explicit user rollout approval. The form is live at https://ourlilstudio.com/claim-gift. No customer identities were created by testing, and no real WhatsApp test messages were sent. See `SSO_MANAGER_RELEASE.md` and `OLS_GIFT_RELEASE.yaml` for artifacts, rollout evidence and remaining operator checks.
 
 ## API contract
 
@@ -45,13 +45,13 @@ No credentials or tokens belong in Git, frontend, QR, chat, build contexts or ex
 
 Fresh PostgreSQL tests exposed two pre-existing migration issues: partial active-session uniqueness was checked only in `pg_constraint` rather than as an index, and the device index name disagreed with model state. The two old organization migrations now recognize the existing partial unique index; migration 0014 renames the device index without changing its columns or uniqueness. Migration 0013 only adds the service-scoped registration receipt table. These changes preserve existing data and enforcement; already-applied organization migrations are not rerun in production.
 
-## Release gates (not yet performed)
+## Release gates and operational follow-up
 
 1. Publish reviewed source and test the selected exact commit in the established SSO pipeline. Verify the image does not contain `.env`, signing keys or this test configuration as its runtime setting.
 2. Resolve the immutable new image digest, capture previous API/worker service configuration, run compatible one-off migrations with the release image and existing secret/network configuration.
 3. Roll existing SSO roles; verify task convergence, health and relevant public/authenticated registration paths. No live customer creation is part of a probe without explicit test authorization.
 4. Enroll the narrow service and encrypted n8n credential. Expand `ols_gifts.claims` using the feature schema and replace only the **inactive** `OLSGiftClaimV1` artifact. Keep old OTP workflow and credentials unchanged.
-5. Separately approve activating the gift webhook, preserving WAHA global OTP hook, and publishing `/claim-gift` through Vercel. Live operator WhatsApp validation remains outstanding.
+5. Activate the user-approved gift webhook while preserving the WAHA global OTP hook, and publish `/claim-gift` through Vercel. Both are active; live operator WhatsApp validation remains outstanding.
 
 SSO errors must never revoke a registered gift or resend its WA confirmation. n8n records sync state (`pending`, `synced`, `failed`) and the SSO user ID. A failed/uncertain sync can be repaired with the same campaign/message payload, which is idempotent; do not rerun the original gift confirmation branch.
 

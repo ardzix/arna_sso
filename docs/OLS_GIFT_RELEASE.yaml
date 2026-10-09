@@ -1,42 +1,61 @@
 release:
-  id: ols-gift-sso-preparation-20261009
-  requested_scope: Registration-only SSO API and inactive n8n integration
+  id: ols-gift-production-20261009
+  requested_scope: Wedding gift form, authenticated WAHA/n8n claim tracking and restricted SSO registration
   authorization_reference: User explicitly authorized production rollout with "gas live kan" on 2026-10-09
-  status: release-in-progress
+  actor: Codex acting under the project owner's production authorization
+  status: deployed-and-verified-with-live-message-test-outstanding
 source:
   repository: git@github.com:ardzix/arna_sso
-  branch: codex/ols-gift-sso-registration
+  branch: main
   base_commit: a1e2247
-  commit_full: "" # Changes not committed/published
+  application_commit_full: 1afdb8fcff2f38ba81334e022ba449cd070351c6
   related_releases:
     - repository: git@github.com:ardzix/ols-storefront.git
-      state: local uncommitted claim form and inactive workflow generator
+      branch: main
+      commit_full: f7a0a9385cfab8740d0e85a5c00191eb9f105185
+      state: pushed and production form verified
 target:
   manager_inventory_reference: approved SSH root@arnatech.id
-  stack: sso
-  public_domains: [sso.arnatech.id]
+  services: [sso_service, n8n-n8n-1, waha-waha-1]
+  public_domains: [sso.arnatech.id, n8d.arnatech.id, waha.arnatech.id, ourlilstudio.com]
   running_image_before_change: ardzix/arna_sso:latest@sha256:699579da58ecaf109ffc39b3b83bbdc2434e89faa6a76a78b2fa1a0354468829
 artifact:
-  digest: "" # New release image not built or published
+  digest: ardzix/arna_sso@sha256:6f2b0cd6279cec9b523a00328d6a35fa47674575680caa9175b4371bdd54097b
+  platform: linux/amd64
+  release_tag: ols-gift-1afdb8fcff2f
 configuration:
-  credential_references: [OLSGiftSsoReg01]
-  source_of_truth_reference: enrollment via SSO-owned command; raw secret only in encrypted n8n credential
-  production_service_enrolled: false
-  n8n_sso_credential_created: false
+  credential_references: [OLSGiftSsoReg01, OLSGiftWebhook01, OLSGiftWahaKey01]
+  source_of_truth_reference: versioned deploy/release.py manager path plus immutable full-runtime Swarm secret
+  runtime_secret_references: [sso-ols-gift-runtime-1afdb8fcff2f, sso-ols-gift-private-1afdb8fcff2f, sso-ols-gift-public-1afdb8fcff2f]
+  signing_key_rotation: false
+  production_service_enrolled: true
+  n8n_sso_credential_created: true
+  legacy_jenkins_job_rebound: false
+  legacy_jenkins_limitation: Existing inline job has no triggers and was not executed; authenticated administrator must switch it to versioned Jenkinsfile before any future Jenkins release
 migration:
   compatibility_and_recovery: Add receipt table; rename existing index without data deletion; old organization migration detection fixes only affect replay
-  production_outcome: pending
+  production_outcome: complete_exit_0
+  task_id: w2c19w294rbtf1fn5qlmcxlge
+  same_image_secrets_and_network: true
 gates:
-  source_and_tests: {outcome: pass, evidence: 27 tests passed on disposable PostgreSQL, framework checks and migration drift checks passed; source remains uncommitted}
-  image_publication: {outcome: pending, evidence: not requested/performed}
-  rollout: {outcome: pending, evidence: no production service modified}
-  public_routes: {outcome: pending, evidence: new API not deployed}
-  live_whatsapp: {outcome: pending, evidence: no WhatsApp messages sent}
-  n8n_and_form: {outcome: pass, evidence: local build and gift tests passed; HTTP tests passed for 13 canonical pages and 193 links; real n8n-to-SSO execution is pending}
+  source_and_tests: {outcome: pass, evidence: 27 tests in exact release image with disposable PostgreSQL and synthetic keys; framework and migration drift checks passed}
+  image_publication: {outcome: pass, evidence: published digest and amd64 architecture resolved; image has no runtime env or PEM files}
+  rollout: {outcome: pass, evidence: existing service rolled one replica at a time; final UpdateStatus completed and both replicas healthy; API and qcluster processes present}
+  public_routes: {outcome: pass, evidence: public HTTPS liveness and readiness; restricted token exchange succeeds and empty authenticated registration returns 400 without creating an identity}
+  n8n_sso_http: {outcome: pass, evidence: actual n8n Custom Auth token node returns 300-second service token and protected registration node returns validation 400}
+  incoming_webhook: {outcome: pass, evidence: unauthorized request rejected; authenticated no-op returns 200; 21-node gift workflow active}
+  otp_preservation: {outcome: pass, evidence: existing workflow nodes/connections/settings/active state unchanged; global WAHA OTP hook unchanged; session WORKING}
+  form: {outcome: pass, evidence: production HTTPS 200; one input; canonical and noindex correct; actual browser CTA opens exact phone/message draft; no Send action taken}
+  storefront_regression: {outcome: pass, evidence: local build and gift tests passed; 13 canonical pages and 193 internal links passed}
+  live_whatsapp: {outcome: not-performed, evidence: no WhatsApp test sends or synthetic customer registrations; operator must send one claim to verify the final live message and sync}
 recovery:
   requested: false
-  outcome: not-applicable; no production rollout
+  previous_spec_reference: private manager release directory previous-service.json
+  schema_reversal: not_performed
+cleanup:
+  disposable_test_resources_removed: true
+  temporary_plaintext_credential_files_removed: true
+  retained_for_recovery: previous specs, images and immutable secrets
 remaining_actions:
-  - Approve production release, establish SSO pipeline and immutable image, then run migration/rollout gates
-  - Enroll registration-only service and encrypted n8n credential, update inactive gift workflow
-  - Approve gift activation and Vercel publication; verify with an approved operator phone
+  - Send an operator-approved WhatsApp claim and verify exact confirmation plus sso_sync_status synced
+  - Authenticated Jenkins administrator must rebind legacy production/arna_sso to the versioned Jenkinsfile before using that job again

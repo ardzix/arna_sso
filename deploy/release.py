@@ -197,6 +197,11 @@ def roll(commit, folder):
 def verify(commit, folder):
     record = json.loads((folder / 'release.json').read_text())
     info = inspect_service()
+    # Docker's update progress can finish before the final monitor window does.
+    deadline = time.monotonic() + 90
+    while info.get('UpdateStatus', {}).get('State') == 'updating' and time.monotonic() < deadline:
+        time.sleep(3)
+        info = inspect_service()
     if info['Spec']['TaskTemplate']['ContainerSpec']['Image'] != record['digest']:
         raise RuntimeError('Wrong live digest')
     if info.get('UpdateStatus', {}).get('State') != 'completed':
