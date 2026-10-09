@@ -163,7 +163,7 @@ def roll(commit, folder):
         options += ['--secret', 'source=' + secret_names[kind] + ',target=' + target + ',mode=0400']
     migrate = 'sso-gift-migrate-' + commit[:12]
     try:
-        run(['docker', 'service', 'create', '--with-registry-auth', '--name', migrate, '--restart-condition', 'none',
+        run(['docker', 'service', 'create', '--detach=true', '--with-registry-auth', '--name', migrate, '--restart-condition', 'none',
              '--limit-memory', '384M', '--entrypoint', 'python', *options, record['digest'], 'manage.py', 'migrate', '--noinput'])
         task = wait_task(migrate)
         record['migration_task'] = task
