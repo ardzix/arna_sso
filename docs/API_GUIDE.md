@@ -76,6 +76,10 @@ Use for a trusted backend rather than an end user.
 
 ## Device authorization flow
 
+New clients use `/api/v1/devices/`; the legacy routes below remain aliases.
+Read [the current device contract](DEVICE_AUTHORIZATION.md) for scope policy,
+tenant verification, review/inventory/status/introspection and migration notes.
+
 Use for a CLI, worker installed at a customer site, smart device, or agent that
 cannot show a secure browser login itself.
 
@@ -84,7 +88,8 @@ cannot show a secure browser login itself.
 2. Device shows the returned `user_code` and `verification_uri_complete` to an
    operator. Do not put `device_code` on screen or in logs.
 3. An authenticated organization owner or a member with `device.activate` opens
-   the browser URI and submits the code, target `organization_id`, and `approve`
+   the browser URI, reviews details through `/auth/device/review/`, then submits
+   the code, target `organization_id`, and `approve`
    or `deny` to `/auth/device/verification/`.
 4. Device polls `/auth/device/token/` using the opaque `device_code`, waiting at
    least `interval` seconds between attempts. `authorization_pending` is normal;
@@ -105,11 +110,11 @@ Start from the device (no user bearer token):
 curl -X POST https://sso.arnatech.id/api/auth/device/authorize/ \
   -H 'Content-Type: application/json' \
   -d '{
-    "client_id": "arna-social-ai-worker",
-    "device_name": "Campaign Worker - production",
+    "client_id": "photobooth-kiosk-01",
+    "device_name": "Photobooth lobby",
     "tenant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
-    "audience": "arna_social_ai",
-    "scopes": ["arna_social_ai.campaign.read", "arna_social_ai.report.upload"]
+    "audience": "photobooth-api",
+    "scopes": ["photobooth.session"]
   }'
 ```
 

@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.exceptions import APIException, PermissionDenied, ValidationError, NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
@@ -25,6 +26,11 @@ from organization.models import Organization, OrganizationMember
 from audit_logging.models import AuditLog
 
 from .models import DeviceAuthorizationGrant, DeviceRefreshCredential, DeviceRegistration
+from .device_serializers import (DeviceAuthorizeSerializer, DeviceDecisionSerializer, DeviceReviewSerializer,
+                                 DeviceRevokeSerializer, DeviceInventorySerializer, DeviceInventoryResponseSerializer,
+                                 DeviceReviewResponseSerializer, DeviceRegistrationResponseSerializer, DeviceErrorSerializer,
+                                 DeviceTokenSerializer, DeviceRefreshSerializer)
+from .device_security import verify_tenant, verify_dpop
 
 
 DEVICE_FLOW_GUIDE = """
@@ -54,20 +60,6 @@ and contains only the approved scopes.
 """
 
 
-DEVICE_AUTHORIZE_SCHEMA = openapi.Schema(
-    type=openapi.TYPE_OBJECT,
-    required=["client_id", "device_name", "tenant_id", "audience", "scopes"],
-    properties={
-        "client_id": openapi.Schema(type=openapi.TYPE_STRING, example="arna-social-ai-worker"),
-        "device_name": openapi.Schema(type=openapi.TYPE_STRING, example="Campaign Worker - production"),
-        "tenant_id": openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_UUID),
-        "audience": openapi.Schema(type=openapi.TYPE_STRING, example="arna_social_ai"),
-        "scopes": openapi.Schema(type=openapi.TYPE_ARRAY, items=openapi.Schema(type=openapi.TYPE_STRING), example=["arna_social_ai.campaign.read", "arna_social_ai.report.upload"]),
-        "public_key_thumbprint": openapi.Schema(type=openapi.TYPE_STRING, description="Optional RFC 7638 JWK thumbprint for proof-of-possession binding."),
-    },
-)
-
-
 def _codes():
     # Exclude ambiguous characters so a human can type the code from a screen.
     alphabet = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"
@@ -75,16 +67,15 @@ def _codes():
     return secrets.token_urlsafe(48), f"{user_code[:4]}-{user_code[4:]}"
 
 
-def _normalized_scopes(value):
-    if not isinstance(value, list) or not value or not all(isinstance(scope, str) and scope.strip() for scope in value):
-        return None
-    return sorted(set(scope.strip() for scope in value))
-
-
 def _device_access_token(registration):
+    if settings.SIMPLE_JWT["ALGORITHM"] != "RS256":
+        raise APIException("Device credentials require RS256 signing configuration.")
     token = AccessToken()
     token.set_exp(lifetime=timedelta(minutes=settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
     token["token_type"] = "device"
+    token["iss"] = settings.DEVICE_TOKEN_ISSUER
+    token["sub"] = str(registration.id)
+    token["credential_version"] = registration.credential_version
     token["principal_type"] = "device"
     token["device_id"] = str(registration.id)
     token["client_id"] = registration.client_id
@@ -103,12 +94,15 @@ def _issue_refresh(registration):
     DeviceRefreshCredential.objects.create(
         token_hash=DeviceRefreshCredential.hash_secret(raw),
         registration=registration,
+        credential_version=registration.credential_version,
         expires_at=timezone.now() + timedelta(days=settings.DEVICE_REFRESH_TOKEN_LIFETIME_DAYS),
     )
     return raw
 
 
 def _can_manage_devices(user, organization):
+    if not user.is_active:
+        return False
     if user.is_superuser or organization.owner_id == user.id:
         return True
     membership = OrganizationMember.objects.filter(user=user, organization=organization).first()
@@ -117,15 +111,98 @@ def _can_manage_devices(user, organization):
     direct = UserPermission.objects.filter(
         organization_member=membership,
         permissions__name="device.activate",
+        permissions__organization=organization,
     ).exists()
     via_role = UserRole.objects.filter(
         organization_member=membership,
         role__permissions__name="device.activate",
+        role__organization=organization,
+        role__permissions__organization=organization,
     ).exists()
     return direct or via_role
 
 
-class DeviceAuthorizeView(APIView):
+def _error_detail(value):
+    if isinstance(value, dict):
+        return " ".join(f"{field}: {_error_detail(message)}" for field, message in value.items())
+    if isinstance(value, list):
+        return " ".join(_error_detail(message) for message in value)
+    return str(value)
+
+
+class DeviceAPIView(APIView):
+    """Keep OAuth error codes while supplying human detail and a trace ID."""
+
+    def handle_exception(self, exc):
+        response = super().handle_exception(exc)
+        if isinstance(exc, APIException):
+            response.data = {"error": "invalid_request" if isinstance(exc, ValidationError) else exc.default_code,
+                             "detail": _error_detail(exc.detail), "fields": exc.detail if isinstance(exc, ValidationError) else None}
+        return response
+
+    def finalize_response(self, request, response, *args, **kwargs):
+        request_id = str(uuid.uuid4())
+        if response.status_code >= 400 and isinstance(response.data, dict):
+            descriptions = {
+                "authorization_pending": "Waiting for an authorized operator to approve this device.",
+                "slow_down": "Polling too quickly. Wait at least the returned interval before retrying.",
+                "expired_token": "The pairing code expired. Start a new authorization request.",
+                "access_denied": "Device authorization was denied, revoked or replaced. Pair again.",
+                "invalid_grant": "The credential is unknown, expired, used, revoked or replaced. Pair again.",
+                "unsupported_grant_type": "Use urn:ietf:params:oauth:grant-type:device_code.",
+            }
+            error = response.data.get("error", "invalid_request")
+            response.data.setdefault("detail", descriptions.get(error, error))
+            if " " in error:
+                response.data["error"] = "invalid_request"
+            response.data["request_id"] = request_id
+        response["X-Request-ID"] = request_id
+        response["Cache-Control"] = "no-store"
+        return super().finalize_response(request, response, *args, **kwargs)
+
+
+def _validated(serializer_class, data):
+    serializer = serializer_class(data=data)
+    serializer.is_valid(raise_exception=True)
+    return serializer.validated_data
+
+
+def _organization(user, organization_id):
+    organization = Organization.objects.filter(pk=organization_id).first()
+    if not organization or not _can_manage_devices(user, organization):
+        raise PermissionDenied("Organization owner or device.activate permission in this organization is required.")
+    return organization
+
+
+def _pending_grant(data, lock=False):
+    query = DeviceAuthorizationGrant.objects
+    if lock:
+        query = query.select_for_update()
+    grant = query.filter(user_code_hash=DeviceAuthorizationGrant.hash_secret(data["user_code"])).first()
+    if not grant or grant.is_expired() or grant.consumed_at or grant.denied_at or grant.approved_at:
+        raise ValidationError({"user_code": "This pairing code is unknown, expired or already decided. Start a new request."})
+    if grant.requested_organization_id and grant.requested_organization_id != data["organization_id"]:
+        raise PermissionDenied("The selected organization does not match the organization requested by this device.")
+    return grant
+
+
+def _allowed_policy(registration):
+    return (registration.audience in settings.DEVICE_ALLOWED_AUDIENCES
+            and bool(registration.scopes)
+            and set(registration.scopes).issubset(settings.DEVICE_AUDIENCE_SCOPES.get(registration.audience, [])))
+
+
+def _registration_data(registration):
+    return {"device_id": str(registration.pk), "client_id": registration.client_id,
+            "device_name": registration.display_name, "organization_id": str(registration.organization_id),
+            "tenant_id": str(registration.tenant_id), "audience": registration.audience,
+            "scopes": registration.scopes, "is_active": registration.is_active,
+            "credential_version": registration.credential_version,
+            "key_bound": bool(registration.public_key_thumbprint),
+            "approved_at": registration.approved_at, "last_seen_at": registration.last_seen_at}
+
+
+class DeviceAuthorizeView(DeviceAPIView):
     """Start a tenant-bound device authorization request for a headless client."""
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -134,7 +211,7 @@ class DeviceAuthorizeView(APIView):
     @swagger_auto_schema(
         operation_summary="Device authorization - start",
         operation_description=DEVICE_FLOW_GUIDE + "\n\n**This step:** creates a short-lived approval request and returns codes for the device and browser operator.",
-        request_body=DEVICE_AUTHORIZE_SCHEMA,
+        request_body=DeviceAuthorizeSerializer,
         responses={
             201: openapi.Response(description="Authorization request created", examples={"application/json": {"device_code": "opaque-secret", "user_code": "ABCD-EFGH", "verification_uri": "https://sso.arnatech.id/device/verify", "verification_uri_complete": "https://sso.arnatech.id/device/verify?user_code=ABCD-EFGH", "expires_in": 600, "interval": 5}}),
             400: "Missing/invalid fields or audience not allowed",
@@ -142,30 +219,16 @@ class DeviceAuthorizeView(APIView):
         },
     )
     def post(self, request):
-        client_id = str(request.data.get("client_id", "")).strip()
-        device_name = str(request.data.get("device_name", "")).strip()
-        tenant_id = str(request.data.get("tenant_id", "")).strip()
-        audience = str(request.data.get("audience", "")).strip()
-        scopes = _normalized_scopes(request.data.get("scopes"))
-        if not client_id or not device_name or not tenant_id or not audience or not scopes:
-            return Response({"error": "client_id, device_name, tenant_id, audience, and a non-empty scopes list are required."}, status=status.HTTP_400_BAD_REQUEST)
-        try:
-            uuid.UUID(tenant_id)
-        except ValueError:
-            return Response({"error": "tenant_id must be a UUID."}, status=status.HTTP_400_BAD_REQUEST)
-        if settings.DEVICE_ALLOWED_AUDIENCES and audience not in settings.DEVICE_ALLOWED_AUDIENCES:
-            return Response({"error": "The requested audience is not allowed for device credentials."}, status=status.HTTP_400_BAD_REQUEST)
-
+        data = _validated(DeviceAuthorizeSerializer, request.data)
+        thumbprint = verify_dpop(request, data.get("public_key_thumbprint", ""))
         device_code, user_code = _codes()
         grant = DeviceAuthorizationGrant.objects.create(
             device_code_hash=DeviceAuthorizationGrant.hash_secret(device_code),
             user_code_hash=DeviceAuthorizationGrant.hash_secret(user_code.replace("-", "")),
-            client_id=client_id,
-            device_name=device_name,
-            tenant_id=tenant_id,
-            audience=audience,
-            scopes=scopes,
-            public_key_thumbprint=str(request.data.get("public_key_thumbprint", "")).strip(),
+            client_id=data["client_id"], device_name=data["device_name"],
+            requested_organization_id=data.get("organization_id"),
+            tenant_id=data["tenant_id"], audience=data["audience"], scopes=data["scopes"],
+            public_key_thumbprint=thumbprint,
             expires_at=timezone.now() + timedelta(seconds=settings.DEVICE_AUTHORIZATION_LIFETIME_SECONDS),
             interval_seconds=settings.DEVICE_AUTHORIZATION_INTERVAL_SECONDS,
         )
@@ -180,38 +243,54 @@ class DeviceAuthorizeView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class DeviceVerificationView(APIView):
+class DeviceReviewView(DeviceAPIView):
+    """Review non-secret pairing details before making a decision."""
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(request_body=DeviceReviewSerializer, operation_summary="Review a pending device request",
+                         responses={200: DeviceReviewResponseSerializer, 400: DeviceErrorSerializer,
+                                    403: DeviceErrorSerializer, 503: DeviceErrorSerializer})
+    def post(self, request):
+        data = _validated(DeviceReviewSerializer, request.data)
+        organization = _organization(request.user, data["organization_id"])
+        grant = _pending_grant(data)
+        verify_tenant(request.user, organization, grant.tenant_id)
+        organization = _organization(request.user, data["organization_id"])
+        return Response({"client_id": grant.client_id, "device_name": grant.device_name,
+                         "organization_id": str(organization.pk), "organization_name": organization.name,
+                         "tenant_id": str(grant.tenant_id), "audience": grant.audience, "scopes": grant.scopes,
+                         "key_bound": bool(grant.public_key_thumbprint), "expires_at": grant.expires_at})
+
+
+class DeviceVerificationView(DeviceAPIView):
     """Approve or deny a pending device authorization request from a trusted browser."""
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
         operation_summary="Device authorization - approve or deny",
         operation_description=DEVICE_FLOW_GUIDE + "\n\n**Who may call it:** an authenticated organization owner, superuser, or organization member assigned the `device.activate` permission. The chosen `organization_id` becomes the device's organization context.",
-        request_body=openapi.Schema(type=openapi.TYPE_OBJECT, required=["user_code", "organization_id", "action"], properties={"user_code": openapi.Schema(type=openapi.TYPE_STRING, example="ABCD-EFGH"), "organization_id": openapi.Schema(type=openapi.TYPE_STRING, format=openapi.FORMAT_UUID), "action": openapi.Schema(type=openapi.TYPE_STRING, enum=["approve", "deny"], example="approve")}),
-        responses={200: openapi.Response(description="Decision recorded", examples={"application/json": {"status": "approved", "device_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "tenant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}}), 400: "Expired, consumed, denied, or malformed request", 403: "Caller cannot manage devices in this organization"},
+        request_body=DeviceDecisionSerializer,
+        responses={200: openapi.Response(description="Decision recorded", examples={"application/json": {"status": "approved", "device_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6", "tenant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6"}}), 400: DeviceErrorSerializer, 403: DeviceErrorSerializer, 409: DeviceErrorSerializer, 503: DeviceErrorSerializer},
     )
+    @transaction.atomic
     def post(self, request):
-        user_code = str(request.data.get("user_code", "")).replace("-", "").strip().upper()
-        organization_id = str(request.data.get("organization_id", "")).strip()
-        action = str(request.data.get("action", "approve")).strip().lower()
-        if not user_code or not organization_id or action not in {"approve", "deny"}:
-            return Response({"error": "user_code, organization_id, and action (approve or deny) are required."}, status=status.HTTP_400_BAD_REQUEST)
-        grant = DeviceAuthorizationGrant.objects.filter(user_code_hash=DeviceAuthorizationGrant.hash_secret(user_code)).first()
-        if not grant or grant.is_expired() or grant.consumed_at or grant.denied_at:
-            return Response({"error": "This device authorization request is no longer valid."}, status=status.HTTP_400_BAD_REQUEST)
-        organization = Organization.objects.filter(id=organization_id).first()
-        if not organization or not _can_manage_devices(request.user, organization):
-            return Response({"error": "You are not allowed to approve devices for this organization."}, status=status.HTTP_403_FORBIDDEN)
-        if action == "deny":
+        data = _validated(DeviceDecisionSerializer, request.data)
+        organization = _organization(request.user, data["organization_id"])
+        grant = _pending_grant(data, lock=True)
+        if data["action"] == "deny":
             grant.denied_at = timezone.now()
             grant.approved_by = request.user
             grant.save(update_fields=["denied_at", "approved_by"])
-            AuditLog.objects.create(user=request.user, action="device_authorization_denied", metadata={"client_id": grant.client_id, "tenant_id": str(grant.tenant_id), "organization_id": organization_id})
+            AuditLog.objects.create(user=request.user, action="device_authorization_denied", metadata={"client_id": grant.client_id, "tenant_id": str(grant.tenant_id), "organization_id": str(organization.pk)})
             return Response({"status": "denied"})
 
-        registration, _ = DeviceRegistration.objects.update_or_create(
-            client_id=grant.client_id,
-            defaults={
+        verify_tenant(request.user, organization, grant.tenant_id)
+        if not _allowed_policy(grant):
+            raise ValidationError({"scopes": "Device scope policy changed. Start a new pairing request."})
+        organization = _organization(request.user, data["organization_id"])
+        if grant.is_expired():
+            raise ValidationError({"user_code": "The pairing request expired during verification. Start again."})
+        defaults = {
                 "display_name": grant.device_name,
                 "organization": organization,
                 "tenant_id": grant.tenant_id,
@@ -221,17 +300,27 @@ class DeviceVerificationView(APIView):
                 "is_active": True,
                 "approved_by": request.user,
                 "approved_at": timezone.now(),
-            },
-        )
+            }
+        registration, created = DeviceRegistration.objects.get_or_create(client_id=grant.client_id, defaults=defaults)
+        registration = DeviceRegistration.objects.select_for_update().get(pk=registration.pk)
+        if not created:
+            if registration.is_active and registration.organization_id != organization.pk:
+                return Response({"error": "device_already_registered", "detail": "This client_id is active in another organization. Its administrator must revoke it before reassignment."}, status=409)
+            registration.credential_version += 1
+            for field, value in defaults.items():
+                setattr(registration, field, value)
+            registration.save()
+            DeviceRefreshCredential.objects.filter(registration=registration, revoked_at__isnull=True).update(revoked_at=timezone.now())
         grant.approved_registration = registration
+        grant.approved_registration_version = registration.credential_version
         grant.approved_by = request.user
         grant.approved_at = timezone.now()
-        grant.save(update_fields=["approved_registration", "approved_by", "approved_at"])
+        grant.save(update_fields=["approved_registration", "approved_registration_version", "approved_by", "approved_at"])
         AuditLog.objects.create(user=request.user, action="device_authorization_approved", metadata={"device_id": str(registration.id), "client_id": registration.client_id, "tenant_id": str(registration.tenant_id), "organization_id": str(registration.organization_id)})
-        return Response({"status": "approved", "device_id": str(registration.id), "tenant_id": str(registration.tenant_id)})
+        return Response({"status": "approved", **_registration_data(registration)})
 
 
-class DeviceTokenView(APIView):
+class DeviceTokenView(DeviceAPIView):
     """Poll a pending device request and exchange an approved one for a device token pair."""
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -244,9 +333,10 @@ class DeviceTokenView(APIView):
     )
     @transaction.atomic
     def post(self, request):
-        if request.data.get("grant_type") != "urn:ietf:params:oauth:grant-type:device_code":
+        data = _validated(DeviceTokenSerializer, request.data)
+        if data["grant_type"] != "urn:ietf:params:oauth:grant-type:device_code":
             return Response({"error": "unsupported_grant_type"}, status=status.HTTP_400_BAD_REQUEST)
-        raw_code = str(request.data.get("device_code", ""))
+        raw_code = data["device_code"]
         grant = DeviceAuthorizationGrant.objects.select_for_update().filter(device_code_hash=DeviceAuthorizationGrant.hash_secret(raw_code)).first()
         if not grant:
             return Response({"error": "invalid_grant"}, status=status.HTTP_400_BAD_REQUEST)
@@ -258,24 +348,28 @@ class DeviceTokenView(APIView):
             return Response({"error": "invalid_grant"}, status=status.HTTP_400_BAD_REQUEST)
         now = timezone.now()
         if grant.last_polled_at and (now - grant.last_polled_at).total_seconds() < grant.interval_seconds:
-            grant.interval_seconds += 1
+            grant.interval_seconds += 5
             grant.save(update_fields=["interval_seconds"])
             return Response({"error": "slow_down", "interval": grant.interval_seconds}, status=status.HTTP_400_BAD_REQUEST)
         grant.last_polled_at = now
         grant.save(update_fields=["last_polled_at"])
         if not grant.approved_registration_id:
+            if grant.approved_at:
+                return Response({"error": "access_denied"}, status=status.HTTP_400_BAD_REQUEST)
             return Response({"error": "authorization_pending"}, status=status.HTTP_400_BAD_REQUEST)
-        registration = grant.approved_registration
-        if not registration.is_active:
+        registration = DeviceRegistration.objects.select_for_update().get(pk=grant.approved_registration_id)
+        if (not registration.is_active or not _allowed_policy(registration)
+                or grant.approved_registration_version != registration.credential_version):
             return Response({"error": "access_denied"}, status=status.HTTP_400_BAD_REQUEST)
+        verify_dpop(request, registration.public_key_thumbprint)
         grant.consumed_at = now
         grant.save(update_fields=["consumed_at"])
         registration.last_seen_at = now
         registration.save(update_fields=["last_seen_at"])
-        return Response({"access_token": _device_access_token(registration), "refresh_token": _issue_refresh(registration), "token_type": "Bearer", "expires_in": settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
+        return Response({"access_token": _device_access_token(registration), "refresh_token": _issue_refresh(registration), "token_type": "DPoP" if registration.public_key_thumbprint else "Bearer", "expires_in": settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60, **_registration_data(registration)})
 
 
-class DeviceRefreshView(APIView):
+class DeviceRefreshView(DeviceAPIView):
     """Rotate an opaque device refresh credential into a new device token pair."""
     permission_classes = [AllowAny]
     authentication_classes = []
@@ -288,19 +382,27 @@ class DeviceRefreshView(APIView):
     )
     @transaction.atomic
     def post(self, request):
-        raw = str(request.data.get("refresh_token", ""))
-        credential = DeviceRefreshCredential.objects.select_for_update().select_related("registration", "registration__organization").filter(token_hash=DeviceRefreshCredential.hash_secret(raw)).first()
-        if not credential or not credential.is_valid():
+        raw = _validated(DeviceRefreshSerializer, request.data)["refresh_token"]
+        candidate = DeviceRefreshCredential.objects.filter(token_hash=DeviceRefreshCredential.hash_secret(raw)).first()
+        if not candidate:
             return Response({"error": "invalid_grant"}, status=status.HTTP_400_BAD_REQUEST)
+        # Lock registration first, consistently with approval and revocation.
+        registration = DeviceRegistration.objects.select_for_update().filter(pk=candidate.registration_id).first()
+        credential = DeviceRefreshCredential.objects.select_for_update().filter(pk=candidate.pk).first()
+        if not registration or not credential:
+            return Response({"error": "invalid_grant"}, status=status.HTTP_400_BAD_REQUEST)
+        credential.registration = registration
+        if not credential.is_valid() or not _allowed_policy(registration):
+            return Response({"error": "invalid_grant"}, status=status.HTTP_400_BAD_REQUEST)
+        verify_dpop(request, registration.public_key_thumbprint)
         credential.used_at = timezone.now()
         credential.save(update_fields=["used_at"])
-        registration = credential.registration
         registration.last_seen_at = timezone.now()
         registration.save(update_fields=["last_seen_at"])
-        return Response({"access_token": _device_access_token(registration), "refresh_token": _issue_refresh(registration), "token_type": "Bearer", "expires_in": settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60})
+        return Response({"access_token": _device_access_token(registration), "refresh_token": _issue_refresh(registration), "token_type": "DPoP" if registration.public_key_thumbprint else "Bearer", "expires_in": settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60, **_registration_data(registration)})
 
 
-class DeviceRevokeView(APIView):
+class DeviceRevokeView(DeviceAPIView):
     """Deactivate a device registration and revoke all of its refresh credentials."""
     permission_classes = [IsAuthenticated]
 
@@ -312,13 +414,49 @@ class DeviceRevokeView(APIView):
     )
     @transaction.atomic
     def post(self, request):
-        registration = DeviceRegistration.objects.select_for_update().select_related("organization").filter(id=request.data.get("device_id")).first()
+        data = _validated(DeviceRevokeSerializer, request.data)
+        registration = DeviceRegistration.objects.select_for_update().select_related("organization").filter(id=data["device_id"]).first()
         if not registration:
             return Response({"error": "Device not found."}, status=status.HTTP_404_NOT_FOUND)
         if not _can_manage_devices(request.user, registration.organization):
             return Response({"error": "You are not allowed to revoke this device."}, status=status.HTTP_403_FORBIDDEN)
         registration.is_active = False
-        registration.save(update_fields=["is_active"])
+        registration.credential_version += 1
+        registration.save(update_fields=["is_active", "credential_version", "updated_at"])
         DeviceRefreshCredential.objects.filter(registration=registration, revoked_at__isnull=True).update(revoked_at=timezone.now())
         AuditLog.objects.create(user=request.user, action="device_revoked", metadata={"device_id": str(registration.id), "client_id": registration.client_id, "tenant_id": str(registration.tenant_id), "organization_id": str(registration.organization_id)})
         return Response(status=status.HTTP_204_NO_CONTENT)
+
+
+class DeviceInventoryView(DeviceAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(query_serializer=DeviceInventorySerializer, operation_summary="List registered devices in an authorized organization",
+                         responses={200: DeviceInventoryResponseSerializer, 400: DeviceErrorSerializer, 403: DeviceErrorSerializer})
+    def get(self, request):
+        data = _validated(DeviceInventorySerializer, request.query_params)
+        organization = _organization(request.user, data["organization_id"])
+        devices = DeviceRegistration.objects.filter(organization=organization).order_by("-created_at", "pk")
+        if data.get("tenant_id"):
+            devices = devices.filter(tenant_id=data["tenant_id"])
+        offset = (data["page"] - 1) * data["page_size"]
+        return Response({"count": devices.count(), "page": data["page"], "page_size": data["page_size"],
+                         "results": [_registration_data(device) for device in devices[offset:offset + data["page_size"]]]})
+
+
+class DeviceDetailView(DeviceAPIView):
+    permission_classes = [IsAuthenticated]
+
+    @swagger_auto_schema(query_serializer=DeviceInventorySerializer, operation_summary="Inspect a registered device",
+                         responses={200: DeviceRegistrationResponseSerializer, 400: DeviceErrorSerializer,
+                                    403: DeviceErrorSerializer, 404: DeviceErrorSerializer})
+    def get(self, request, device_id):
+        data = _validated(DeviceInventorySerializer, request.query_params)
+        organization = _organization(request.user, data["organization_id"])
+        devices = DeviceRegistration.objects.filter(organization=organization, pk=device_id)
+        if data.get("tenant_id"):
+            devices = devices.filter(tenant_id=data["tenant_id"])
+        registration = devices.first()
+        if not registration:
+            raise NotFound("Device not found in the selected organization/tenant.")
+        return Response(_registration_data(registration))

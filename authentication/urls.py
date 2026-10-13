@@ -37,7 +37,8 @@ from .passkeys_api_views import (
     PasskeyDeleteView,
 )
 from .sso_views import SSOAuthorizeCodeView, SSOTokenExchangeView
-from .device_views import DeviceAuthorizeView, DeviceVerificationView, DeviceTokenView, DeviceRefreshView, DeviceRevokeView
+from .device_views import DeviceAuthorizeView, DeviceVerificationView, DeviceTokenView, DeviceRefreshView, DeviceRevokeView, DeviceReviewView, DeviceInventoryView, DeviceDetailView
+from .device_status import DeviceStatusView, DeviceIntrospectionView
 
 urlpatterns = [
     path('sso/authorize-code/', SSOAuthorizeCodeView.as_view(), name='sso_authorize_code'),
@@ -48,6 +49,11 @@ urlpatterns = [
     path('device/token/', DeviceTokenView.as_view(), name='device_token'),
     path('device/refresh/', DeviceRefreshView.as_view(), name='device_refresh'),
     path('device/revoke/', DeviceRevokeView.as_view(), name='device_revoke'),
+    path('device/review/', DeviceReviewView.as_view(), name='device_review'),
+    path('device/registrations/', DeviceInventoryView.as_view(), name='device_inventory'),
+    path('device/registrations/<uuid:device_id>/', DeviceDetailView.as_view(), name='device_detail'),
+    path('device/status/', DeviceStatusView.as_view(), name='device_status'),
+    path('device/introspect/', DeviceIntrospectionView.as_view(), name='device_introspect'),
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),

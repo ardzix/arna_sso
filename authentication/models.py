@@ -309,6 +309,7 @@ class DeviceRegistration(models.Model):
     public_key_thumbprint = models.CharField(max_length=128, blank=True)
     is_active = models.BooleanField(default=True)
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
+    credential_version = models.PositiveIntegerField(default=1)
     approved_at = models.DateTimeField(null=True, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -330,6 +331,7 @@ class DeviceAuthorizationGrant(models.Model):
     client_id = models.CharField(max_length=120, db_index=True)
     device_name = models.CharField(max_length=120)
     tenant_id = models.UUIDField()
+    requested_organization_id = models.UUIDField(null=True, blank=True)
     audience = models.CharField(max_length=120)
     scopes = models.JSONField(default=list, blank=True)
     public_key_thumbprint = models.CharField(max_length=128, blank=True)
@@ -337,6 +339,7 @@ class DeviceAuthorizationGrant(models.Model):
     interval_seconds = models.PositiveIntegerField(default=5)
     last_polled_at = models.DateTimeField(null=True, blank=True)
     approved_registration = models.ForeignKey(DeviceRegistration, null=True, blank=True, on_delete=models.SET_NULL)
+    approved_registration_version = models.PositiveIntegerField(null=True, blank=True)
     approved_by = models.ForeignKey(User, null=True, blank=True, on_delete=models.SET_NULL)
     approved_at = models.DateTimeField(null=True, blank=True)
     denied_at = models.DateTimeField(null=True, blank=True)
@@ -357,6 +360,7 @@ class DeviceRefreshCredential(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     token_hash = models.CharField(max_length=64, unique=True)
     registration = models.ForeignKey(DeviceRegistration, on_delete=models.CASCADE, related_name="refresh_credentials")
+    credential_version = models.PositiveIntegerField(default=1)
     expires_at = models.DateTimeField(db_index=True)
     used_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
@@ -367,4 +371,13 @@ class DeviceRefreshCredential(models.Model):
         return hashlib.sha256(value.encode("utf-8")).hexdigest()
 
     def is_valid(self):
-        return self.used_at is None and self.revoked_at is None and self.expires_at > timezone.now() and self.registration.is_active
+        return (self.used_at is None and self.revoked_at is None
+                and self.expires_at > timezone.now() and self.registration.is_active
+                and self.credential_version == self.registration.credential_version)
+
+
+class DeviceProofReplay(models.Model):
+    """Shared replay protection across SSO replicas for verified DPoP proofs."""
+
+    proof_hash = models.CharField(max_length=64, primary_key=True)
+    expires_at = models.DateTimeField(db_index=True)

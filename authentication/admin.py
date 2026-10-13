@@ -109,17 +109,26 @@ class DeviceRegistrationAdmin(admin.ModelAdmin):
     list_display = ("display_name", "client_id", "organization", "tenant_id", "audience", "is_active", "last_seen_at")
     list_filter = ("is_active", "audience")
     search_fields = ("display_name", "client_id", "tenant_id")
-    readonly_fields = ("id", "created_at", "updated_at", "approved_at", "last_seen_at")
+    readonly_fields = tuple(field.name for field in DeviceRegistration._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(DeviceAuthorizationGrant)
 class DeviceAuthorizationGrantAdmin(admin.ModelAdmin):
     list_display = ("client_id", "device_name", "tenant_id", "expires_at", "approved_at", "consumed_at", "denied_at")
     search_fields = ("client_id", "device_name", "tenant_id")
-    readonly_fields = ("id", "device_code_hash", "user_code_hash", "created_at")
+    readonly_fields = tuple(field.name for field in DeviceAuthorizationGrant._meta.fields)
+
+    def has_add_permission(self, request):
+        return False
 
 
 @admin.register(DeviceRefreshCredential)
 class DeviceRefreshCredentialAdmin(admin.ModelAdmin):
     list_display = ("registration", "expires_at", "used_at", "revoked_at")
-    readonly_fields = ("id", "token_hash", "created_at")
+    readonly_fields = tuple(field.name for field in DeviceRefreshCredential._meta.fields)
+
+    def has_add_permission(self, request):
+        return False

@@ -25,6 +25,7 @@ urlpatterns = [
     path('admin/', admin.site.urls),
     path('login/', sso_login_page, name='sso_login_page'),
     path('api/auth/', include('authentication.urls')),
+    path('api/v1/devices/', include('authentication.device_urls')),
     path('api/organizations/', include('organization.urls')),
     path('api/', include('user_profile.urls')),
     path('api/iam/', include('iam.urls')),

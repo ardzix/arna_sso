@@ -258,11 +258,15 @@ wildcard:
 
 ```env
 DEVICE_ALLOWED_AUDIENCES=photobooth-api,new-service-api
+DEVICE_AUDIENCE_SCOPES={"photobooth-api":["photobooth.session","photobooth.session.write"],"new-service-api":["new-service.resource.read"]}
 ```
 
 The device must request one listed value, and the receiving API must reject
 tokens whose `aud` does not match its own configured audience. Device
 `tenant_id` is always a UUID public tenant identifier, never a database row ID.
+SSO verifies the requested tenant against ArnaSite during review and approval.
+See [the device contract](docs/DEVICE_AUTHORIZATION.md) for inventory/status,
+DPoP, backend introspection, identifier mapping and migration/re-pairing notes.
 
 ### WhatsApp OTP
 

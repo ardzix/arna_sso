@@ -12,6 +12,7 @@ https://docs.djangoproject.com/en/5.0/ref/settings/
 
 from pathlib import Path
 import os
+import json
 import sys
 from datetime import timedelta
 
@@ -350,6 +351,17 @@ DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES = _env_int("DEVICE_ACCESS_TOKEN_LIFETIME_MI
 DEVICE_REFRESH_TOKEN_LIFETIME_DAYS = _env_int("DEVICE_REFRESH_TOKEN_LIFETIME_DAYS", 30)
 DEVICE_VERIFICATION_URI = os.getenv("DEVICE_VERIFICATION_URI", "https://sso.arnatech.id/device/verify")
 DEVICE_ALLOWED_AUDIENCES = _env_list("DEVICE_ALLOWED_AUDIENCES", "photobooth-api")
+DEVICE_AUDIENCE_SCOPES = json.loads(os.getenv("DEVICE_AUDIENCE_SCOPES", '{"photobooth-api": ["photobooth.session", "photobooth.session.write"]}'))
+DEVICE_TOKEN_ISSUER = os.getenv("DEVICE_TOKEN_ISSUER", "https://sso.arnatech.id")
+DEVICE_PUBLIC_ORIGIN = os.getenv("DEVICE_PUBLIC_ORIGIN", "https://sso.arnatech.id").rstrip("/")
+DEVICE_ARNASITE_TENANTS_URL = os.getenv("DEVICE_ARNASITE_TENANTS_URL", CRM_ARNASITE_TENANTS_URL)
+if (not isinstance(DEVICE_AUDIENCE_SCOPES, dict)
+        or any(not isinstance(audience, str) or not isinstance(scopes, list) or not scopes
+               or any(not isinstance(scope, str) or not scope.strip() for scope in scopes)
+               for audience, scopes in DEVICE_AUDIENCE_SCOPES.items())):
+    raise ImproperlyConfigured("DEVICE_AUDIENCE_SCOPES must map each device audience to a non-empty list of scopes.")
+if not 1 <= DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES <= 15:
+    raise ImproperlyConfigured("Device access tokens must expire within 1 to 15 minutes.")
 
 CORS_ALLOW_ALL_ORIGINS = _env_bool("CORS_ALLOW_ALL_ORIGINS", default=False)
 CORS_ALLOW_CREDENTIALS = _env_bool("CORS_ALLOW_CREDENTIALS", default=False)
