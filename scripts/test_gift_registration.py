@@ -32,4 +32,5 @@ with tempfile.TemporaryDirectory(prefix="ols-gift-sso-test-") as folder:
     assert Client().get('/health/live', HTTP_HOST='localhost').json() == {'status': 'ok'}
     call_command("makemigrations", check=True, dry_run=True)
     call_command("test", "authentication.tests.test_gift_registration", "authentication.tests.test_website_service",
-                 "authentication.tests.test_website_proof", "authentication.tests.test_wa_otp_throttling", verbosity=2)
+                 "authentication.tests.test_website_proof", "authentication.tests.test_wa_otp_throttling",
+                 "iam.tests", verbosity=2)

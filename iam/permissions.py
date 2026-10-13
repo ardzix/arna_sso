@@ -1,4 +1,4 @@
-from rest_framework import permissions
+from rest_framework import permissions, serializers
 from iam.models import UserRole, UserPermission
 
 class HasOrganizationPermission(permissions.BasePermission):
@@ -7,6 +7,20 @@ class HasOrganizationPermission(permissions.BasePermission):
     within the context of an organization.
     """
     required_permission = None
+
+    def _parse_uuid(self, value, field_name):
+        # Permission checks run before serializer validation. Reject malformed
+        # identifiers here instead of letting the ORM raise a Django exception.
+        try:
+            return serializers.UUIDField().run_validation(value)
+        except serializers.ValidationError:
+            message = "Must be a valid organization UUID."
+            if field_name == 'organization_member':
+                message = (
+                    "Must be a valid organization member UUID. "
+                    "Use the member id from the organization's members endpoint."
+                )
+            raise serializers.ValidationError({field_name: message}) from None
 
     def get_organization(self, request, view, obj=None):
         """
@@ -38,6 +52,7 @@ class HasOrganizationPermission(permissions.BasePermission):
         
         if org_id:
             from organization.models import Organization
+            org_id = self._parse_uuid(org_id, 'organization')
             try:
                 org = Organization.objects.get(pk=org_id)
                 # SECURITY: Validate user has access to this organization
@@ -50,8 +65,11 @@ class HasOrganizationPermission(permissions.BasePermission):
         # 3. For UserRole/UserPermission creation, we get org via 'organization_member'
         if 'organization_member' in request.data:
             from organization.models import OrganizationMember
+            member_id = self._parse_uuid(
+                request.data['organization_member'], 'organization_member'
+            )
             try:
-                member = OrganizationMember.objects.get(pk=request.data['organization_member'])
+                member = OrganizationMember.objects.get(pk=member_id)
                 # SECURITY: Validate user has access to this member's organization
                 org = member.organization
                 if not self._user_has_org_access(request.user, org):

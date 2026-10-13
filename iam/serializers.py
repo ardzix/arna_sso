@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.db.models import Q
+from organization.models import OrganizationMember
 from .models import Role, Permission, UserRole, UserPermission
 
 class PermissionSerializer(serializers.ModelSerializer):
@@ -269,6 +270,18 @@ class RoleSerializer(serializers.ModelSerializer):
         return instance
 
 class UserRoleSerializer(serializers.ModelSerializer):
+    organization_member = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationMember.objects.all(),
+        pk_field=serializers.UUIDField(error_messages={
+            'invalid': 'Must be a valid organization member UUID.',
+        }),
+    )
+    role = serializers.PrimaryKeyRelatedField(
+        queryset=Role.objects.all(),
+        pk_field=serializers.UUIDField(error_messages={
+            'invalid': 'Must be a valid role UUID.',
+        }),
+    )
     role_detail = RoleSerializer(source='role', read_only=True)
 
     user_name = serializers.ReadOnlyField(source='organization_member.user.email')
@@ -297,7 +310,12 @@ class UserPermissionSerializer(serializers.ModelSerializer):
     # Retrieve OrganizationMember model dynamically to avoid top-level circular imports if possible, 
     # but needing it for queryset means we usually import it.
     from organization.models import OrganizationMember
-    organization_member = serializers.PrimaryKeyRelatedField(queryset=OrganizationMember.objects.all())
+    organization_member = serializers.PrimaryKeyRelatedField(
+        queryset=OrganizationMember.objects.all(),
+        pk_field=serializers.UUIDField(error_messages={
+            'invalid': 'Must be a valid organization member UUID.',
+        }),
+    )
     
     permissions = PermissionSerializer(many=True, read_only=True)
     permission_ids = serializers.ListField(

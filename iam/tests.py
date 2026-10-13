@@ -96,3 +96,51 @@ class IAMMultiTenancyTests(APITestCase):
             permissions=self.perm_a,
         )
         self.assertTrue(direct_grant.exists())
+
+    def test_invalid_member_id_returns_field_error_on_assignment_endpoints(self):
+        self.client.force_authenticate(user=self.owner_a)
+        endpoints = {
+            '/api/iam/user-roles/': {'role': str(self.role_a.id)},
+            '/api/iam/user-permissions/': {'permission_ids': [str(self.perm_a.id)]},
+        }
+        for endpoint, fields in endpoints.items():
+            for invalid_id in ('not-a-membership-uuid', '', None, [], {}, 1.5):
+                with self.subTest(endpoint=endpoint, invalid_id=invalid_id):
+                    response = self.client.post(
+                        endpoint, {**fields, 'organization_member': invalid_id}, format='json'
+                    )
+                    self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+                    self.assertIn('organization member UUID', str(response.data['organization_member']))
+                    self.assertIn('members endpoint', str(response.data['organization_member']))
+        self.assertFalse(UserRole.objects.exists())
+        self.assertFalse(UserPermission.objects.exists())
+
+    def test_invalid_organization_id_returns_field_error(self):
+        self.client.force_authenticate(user=self.owner_a)
+        response = self.client.post('/api/iam/user-roles/', {
+            'organization': 'not-an-organization-uuid',
+            'organization_member': str(self.member_staff_a.id),
+            'role': str(self.role_a.id),
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('organization UUID', str(response.data['organization']))
+        self.assertFalse(UserRole.objects.exists())
+
+    def test_invalid_role_id_returns_field_error(self):
+        self.client.force_authenticate(user=self.owner_a)
+        response = self.client.post('/api/iam/user-roles/', {
+            'organization_member': str(self.member_staff_a.id),
+            'role': 'not-a-role-uuid',
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertIn('role UUID', str(response.data['role']))
+        self.assertFalse(UserRole.objects.exists())
+
+    def test_role_assignment_still_requires_organization_permission(self):
+        self.client.force_authenticate(user=self.staff_a)
+        response = self.client.post('/api/iam/user-roles/', {
+            'organization_member': str(self.member_staff_a.id),
+            'role': str(self.role_a.id),
+        }, format='json')
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertFalse(UserRole.objects.exists())
