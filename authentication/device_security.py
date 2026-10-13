@@ -25,7 +25,7 @@ class TenantVerificationUnavailable(APIException):
     default_detail = "ArnaSite tenant verification is temporarily unavailable. Retry before approving."
 
 
-def verify_tenant(user, organization, tenant_id):
+def tenant_workspaces(user, organization):
     # Called only after verifying the operator's authority in this organization.
     # A short delegation carries no roles or permissions from another org.
     token = AccessToken.for_user(user)
@@ -51,16 +51,20 @@ def verify_tenant(user, organization, tenant_id):
         rows = data if isinstance(data, list) else data.get("results")
         if not isinstance(rows, list) or (isinstance(data, dict) and data.get("next")):
             raise TenantVerificationUnavailable()
-        found = False
+        active = []
         for row in rows:
             if not isinstance(row, dict) or str(row.get("sso_organization_id")) != str(organization.pk):
                 raise TenantVerificationUnavailable()
             row_id = uuid.UUID(str(row.get("tenant_id")))
-            if row_id == tenant_id and row.get("is_active") is True:
-                found = True
+            if row.get("is_active") is True:
+                active.append({"tenant_id": row_id, "name": str(row.get("name") or row_id)})
     except (requests.RequestException, ValueError, TypeError, AttributeError) as exc:
         raise TenantVerificationUnavailable() from exc
-    if not found:
+    return active
+
+
+def verify_tenant(user, organization, tenant_id):
+    if not any(row['tenant_id'] == tenant_id for row in tenant_workspaces(user, organization)):
         raise PermissionDenied("The requested tenant is not an active ArnaSite workspace of this organization.")
 
 
@@ -129,12 +133,20 @@ def device_token_registration(raw, audience):
                                                  "device_id", "client_id", "organization_id", "org_id", "tenant_id",
                                                  "scopes", "credential_version"]})
         registration = DeviceRegistration.objects.get(pk=uuid.UUID(claims["device_id"]), is_active=True)
+        from iam.effective import effective_access, STORAGE_PERMISSIONS
+        roles, permissions = effective_access(registration, registration.organization, device=True)
+        storage_scopes = sorted(set(permissions) & STORAGE_PERMISSIONS)
+        resource_token = claims['aud'] == 'storage' and registration.audience != 'storage'
+        expected_scopes = storage_scopes if resource_token else registration.scopes
         if (claims["token_type"] != "device" or claims.get("principal_type") != "device"
                 or claims["sub"] != str(registration.pk) or claims["client_id"] != registration.client_id
                 or claims["organization_id"] != str(registration.organization_id)
                 or claims["org_id"] != str(registration.organization_id)
-                or claims["tenant_id"] != str(registration.tenant_id) or claims["aud"] != registration.audience
-                or claims["scopes"] != registration.scopes
+                or claims["tenant_id"] != str(registration.tenant_id)
+                or (claims["aud"] != registration.audience and not resource_token)
+                or claims["scopes"] != expected_scopes
+                or (claims['aud'] == 'storage' and (not storage_scopes or claims.get('permissions') != storage_scopes
+                                                   or not set(expected_scopes).issubset(storage_scopes)))
                 or registration.audience not in settings.DEVICE_ALLOWED_AUDIENCES
                 or not set(registration.scopes).issubset(settings.DEVICE_AUDIENCE_SCOPES.get(registration.audience, []))
                 or type(claims["credential_version"]) is not int

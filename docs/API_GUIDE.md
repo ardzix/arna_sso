@@ -84,12 +84,12 @@ Use for a CLI, worker installed at a customer site, smart device, or agent that
 cannot show a secure browser login itself.
 
 1. Device calls `/auth/device/authorize/` with `client_id`, friendly
-   `device_name`, `tenant_id`, allowed `audience`, and requested `scopes`.
+   `device_name`, allowed `audience`, and requested `scopes`.
 2. Device shows the returned `user_code` and `verification_uri_complete` to an
    operator. Do not put `device_code` on screen or in logs.
 3. An authenticated organization owner or a member with `device.activate` opens
    the browser URI, reviews details through `/auth/device/review/`, then submits
-   the code, target `organization_id`, and `approve`
+   the code and `approve`
    or `deny` to `/auth/device/verification/`.
 4. Device polls `/auth/device/token/` using the opaque `device_code`, waiting at
    least `interval` seconds between attempts. `authorization_pending` is normal;
@@ -100,7 +100,14 @@ cannot show a secure browser login itself.
 6. Rotate the refresh token through `/auth/device/refresh/`. A successful refresh
    invalidates the submitted refresh credential; persist the new one atomically.
 7. Revoke a lost or retired device through `/auth/device/revoke/`. It immediately
-   disables future refreshes; any issued access token expires normally shortly after.
+   disables future refreshes; File Manager introspection rejects old tokens immediately.
+
+The approving owner/admin's verified workspace supplies organization and tenant.
+Select a workspace through `/api/v1/devices/context/` when the organization has
+several active tenants. Assign device roles/permissions through
+`/api/v1/devices/registrations/{device_id}/access/`. Both human and device clients
+request File Manager tokens through `/api/v1/devices/resource-token/` with
+`{"audience":"storage"}`. See the device contract for permissions and rollout.
 
 ### Device flow request examples
 
@@ -112,7 +119,6 @@ curl -X POST https://sso.arnatech.id/api/auth/device/authorize/ \
   -d '{
     "client_id": "photobooth-kiosk-01",
     "device_name": "Photobooth lobby",
-    "tenant_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "audience": "photobooth-api",
     "scopes": ["photobooth.session"]
   }'
@@ -126,7 +132,6 @@ curl -X POST https://sso.arnatech.id/api/auth/device/verification/ \
   -H 'Content-Type: application/json' \
   -d '{
     "user_code": "ABCD-EFGH",
-    "organization_id": "3fa85f64-5717-4562-b3fc-2c963f66afa6",
     "action": "approve"
   }'
 ```

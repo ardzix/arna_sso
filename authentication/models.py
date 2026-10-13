@@ -330,7 +330,7 @@ class DeviceAuthorizationGrant(models.Model):
     user_code_hash = models.CharField(max_length=64, unique=True)
     client_id = models.CharField(max_length=120, db_index=True)
     device_name = models.CharField(max_length=120)
-    tenant_id = models.UUIDField()
+    tenant_id = models.UUIDField(null=True, blank=True)
     requested_organization_id = models.UUIDField(null=True, blank=True)
     audience = models.CharField(max_length=120)
     scopes = models.JSONField(default=list, blank=True)

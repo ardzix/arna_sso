@@ -74,7 +74,8 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
                 except Exception:
                     permissions = set()
                 
-                token['permissions'] = list(permissions)
+                from iam.effective import effective_access
+                token['roles'], token['permissions'] = effective_access(user, member.organization)
                 token['is_owner'] = (member.organization.owner_id == user.id)
             else:
                 # Handle user with no active session (maybe new user or just created)

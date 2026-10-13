@@ -6,7 +6,7 @@ class DeviceAuthorizeSerializer(serializers.Serializer):
     client_id = serializers.CharField(max_length=120)
     device_name = serializers.CharField(max_length=120)
     organization_id = serializers.UUIDField(required=False)
-    tenant_id = serializers.UUIDField()
+    tenant_id = serializers.UUIDField(required=False)
     audience = serializers.CharField(max_length=120)
     scopes = serializers.ListField(child=serializers.CharField(max_length=120), allow_empty=False, max_length=32)
     public_key_thumbprint = serializers.RegexField(r"^[A-Za-z0-9_-]{43}$", required=False, allow_blank=True)
@@ -15,14 +15,14 @@ class DeviceAuthorizeSerializer(serializers.Serializer):
         allowed = settings.DEVICE_AUDIENCE_SCOPES.get(data["audience"], [])
         if (data["audience"] not in settings.DEVICE_ALLOWED_AUDIENCES
                 or not allowed or not set(data["scopes"]).issubset(allowed)):
-            raise serializers.ValidationError({"scopes": "Audience/scopes are not permitted for devices. Use photobooth-api with photobooth.session; Commerce/File Manager require backend service credentials."})
+            raise serializers.ValidationError({"scopes": "Audience/scopes are not permitted for this device resource."})
         data["scopes"] = sorted(set(data["scopes"]))
         return data
 
 
 class DeviceReviewSerializer(serializers.Serializer):
     user_code = serializers.RegexField(r"^[A-HJ-NP-Z2-9]{4}-?[A-HJ-NP-Z2-9]{4}$")
-    organization_id = serializers.UUIDField()
+    organization_id = serializers.UUIDField(required=False)
 
     def validate_user_code(self, value):
         return value.replace("-", "").upper()
@@ -51,7 +51,7 @@ class DeviceRevokeSerializer(serializers.Serializer):
 
 
 class DeviceInventorySerializer(serializers.Serializer):
-    organization_id = serializers.UUIDField()
+    organization_id = serializers.UUIDField(required=False)
     tenant_id = serializers.UUIDField(required=False)
     page = serializers.IntegerField(min_value=1, default=1)
     page_size = serializers.IntegerField(min_value=1, max_value=100, default=20)
@@ -106,3 +106,16 @@ class DeviceErrorSerializer(serializers.Serializer):
 
 class DeviceStatusResponseSerializer(DeviceRegistrationResponseSerializer):
     active = serializers.BooleanField()
+
+
+class DeviceContextSerializer(serializers.Serializer):
+    tenant_id = serializers.UUIDField()
+
+
+class DeviceAccessSerializer(serializers.Serializer):
+    role_ids = serializers.ListField(child=serializers.UUIDField(), max_length=100)
+    permission_ids = serializers.ListField(child=serializers.UUIDField(), max_length=100)
+
+
+class ResourceTokenSerializer(serializers.Serializer):
+    audience = serializers.ChoiceField(choices=['storage'])

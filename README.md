@@ -264,7 +264,10 @@ DEVICE_AUDIENCE_SCOPES={"photobooth-api":["photobooth.session","photobooth.sessi
 The device must request one listed value, and the receiving API must reject
 tokens whose `aud` does not match its own configured audience. Device
 `tenant_id` is always a UUID public tenant identifier, never a database row ID.
-SSO verifies the requested tenant against ArnaSite during review and approval.
+SSO derives organization and tenant from the approving owner/admin's active
+workspace and verifies ownership against ArnaSite during review and approval.
+For File Manager, assign existing SSO roles/permissions to the device and exchange
+its access token at `/api/v1/devices/resource-token/` with `audience=storage`.
 See [the device contract](docs/DEVICE_AUTHORIZATION.md) for inventory/status,
 DPoP, backend introspection, identifier mapping and migration/re-pairing notes.
 

@@ -24,6 +24,7 @@ class OrganizationMember(models.Model):
     # These are separate from Roles. Useful for "exceptions" (e.g., a guest who needs just 1 extra access).
     joined_at = models.DateTimeField(auto_now_add=True)
     is_session_active = models.BooleanField(default=True) 
+    active_tenant_id = models.UUIDField(null=True, blank=True)
 
     class Meta:
         unique_together = ('user', 'organization')

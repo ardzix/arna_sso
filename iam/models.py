@@ -58,6 +58,21 @@ class UserPermission(models.Model):
     assigned_at = models.DateTimeField(auto_now_add=True)
 
 
+class DeviceRole(models.Model):
+    device = models.ForeignKey('authentication.DeviceRegistration', on_delete=models.CASCADE, related_name='role_assignments')
+    role = models.ForeignKey(Role, on_delete=models.CASCADE)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=['device', 'role'], name='unique_device_role')]
+
+
+class DevicePermission(models.Model):
+    device = models.OneToOneField('authentication.DeviceRegistration', on_delete=models.CASCADE, related_name='direct_access')
+    permissions = models.ManyToManyField(Permission, blank=True)
+    assigned_at = models.DateTimeField(auto_now_add=True)
+
+
 class ProductProvisioning(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     organization = models.ForeignKey(

@@ -76,7 +76,7 @@ class DeviceStatusView(DeviceAPIView):
             raw = header[1].decode("ascii")
         except UnicodeDecodeError as exc:
             raise AuthenticationFailed("Invalid device authorization.") from exc
-        registration, _ = device_token_registration(raw, settings.DEVICE_ALLOWED_AUDIENCES)
+        registration, _ = device_token_registration(raw, settings.DEVICE_ALLOWED_AUDIENCES + ['storage'])
         if registration.public_key_thumbprint:
             if header[0].lower() != b"dpop":
                 raise AuthenticationFailed("Use DPoP authorization for a key-bound device token.")
@@ -100,7 +100,7 @@ class DeviceIntrospectionView(DeviceAPIView):
                          }), 400: DeviceErrorSerializer, 401: DeviceErrorSerializer, 403: DeviceErrorSerializer})
     def post(self, request):
         data = _validated(DeviceIntrospectionSerializer, request.data)
-        if data["audience"] not in settings.DEVICE_ALLOWED_AUDIENCES:
+        if data["audience"] not in settings.DEVICE_ALLOWED_AUDIENCES + ['storage']:
             raise PermissionDenied("Unsupported device audience.")
         try:
             registration, claims = device_token_registration(data["access_token"], data["audience"])
@@ -113,4 +113,6 @@ class DeviceIntrospectionView(DeviceAPIView):
         # A key-bound resource must ALSO validate its request's DPoP proof and ath.
         return Response({"active": True, "iss": claims["iss"], "sub": claims["sub"],
                          "exp": claims["exp"], "token_type": "device", "cnf": claims.get("cnf"),
-                         **_registration_data(registration)})
+                         **_registration_data(registration), 'audience': claims['aud'],
+                         'scopes': claims['scopes'], 'permissions': claims.get('permissions', []),
+                         'roles': claims.get('roles', [])})

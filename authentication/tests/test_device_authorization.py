@@ -38,6 +38,8 @@ class DeviceAuthorizationTests(APITestCase):
         self.org_b = Organization.objects.create(name="Device B", owner=self.other, package_type="Basic")
         self.tenant = str(uuid.uuid4())
         self.tenant_b = str(uuid.uuid4())
+        self.owner_member = OrganizationMember.objects.create(user=self.owner, organization=self.org, active_tenant_id=self.tenant)
+        self.other_member = OrganizationMember.objects.create(user=self.other, organization=self.org_b, active_tenant_id=self.tenant_b)
         self.lookup = patch("authentication.device_security.requests.get", side_effect=self.tenant_response).start()
         self.addCleanup(patch.stopall)
 
@@ -242,7 +244,7 @@ class DeviceAuthorizationTests(APITestCase):
         self.assertEqual(self.client.get(BASE + "registrations/", {"organization_id": str(self.org.pk), "page_size": 1000}).status_code, 400)
 
     def test_permission_role_must_belong_to_same_organization(self):
-        member = OrganizationMember.objects.create(user=self.other, organization=self.org)
+        member = OrganizationMember.objects.create(user=self.other, organization=self.org, is_session_active=False, active_tenant_id=self.tenant)
         foreign = Permission.objects.create(organization=self.org_b, name="device.activate")
         role = Role.objects.create(name="Foreign device admin", organization=self.org_b)
         role.permissions.add(foreign)
@@ -253,6 +255,10 @@ class DeviceAuthorizationTests(APITestCase):
         self.assertEqual(self.decision(grant, owner=self.other).status_code, 403)
         own = Permission.objects.create(organization=self.org, name="device.activate")
         direct.permissions.add(own)
+        self.other_member.is_session_active = False
+        self.other_member.save(update_fields=['is_session_active'])
+        member.is_session_active = True
+        member.save(update_fields=['is_session_active'])
         self.assertEqual(self.decision(grant, owner=self.other).status_code, 200)
 
     def test_changed_scope_policy_revokes_refresh_and_status(self):
@@ -400,7 +406,8 @@ class DeviceConcurrencyTests(TransactionTestCase):
         self.owner = User.objects.create_user(email="concurrent-device@example.test", password=None, is_active=True)
         self.org = Organization.objects.create(name="Concurrent Device", owner=self.owner, package_type="Basic")
         self.tenant = str(uuid.uuid4())
-        self.verifier = patch("authentication.device_views.verify_tenant", return_value=None).start()
+        OrganizationMember.objects.create(user=self.owner, organization=self.org, active_tenant_id=self.tenant)
+        self.verifier = patch("authentication.device_context.verify_tenant", return_value=None).start()
         self.addCleanup(patch.stopall)
         self.client = APIClient()
         self.client.force_authenticate(user=self.owner)
