@@ -1,0 +1,43 @@
+change: pinned-manager-ssh-host-trust
+date: 2026-10-14
+release_operator: Codex through the existing authenticated Jenkins admin session
+repository: https://github.com/ardzix/arna_sso.git
+branch: main
+tested_commit: d206a47f1668e44bacb21ed878d450ecca1eb9f8
+failed_build:
+  url: https://jenkins.arnatech.id/job/production/job/arna_sso/153/
+  cause: Executing agent had no trusted ED25519 key for arnatech.id.
+  failure_stage: Test and publish exact artifact
+  migration_executed: false
+verification_build:
+  url: https://jenkins.arnatech.id/job/production/job/arna_sso/154/
+  result: SUCCESS
+  agent: server-laptop-kantor-2
+  deploy_parameter: false
+  tests: 79
+  test_database: disposable_isolated_postgresql
+  clean_runtime_image_check: passed
+  published_image: ardzix/arna_sso@sha256:7de2d7eb9954ac7666de522f5623757703b4c49d13391fa4492042b22029f3bd
+  published_tag: ardzix/arna_sso:ols-gift-d206a47f1668
+  platform: linux/amd64
+  migration_roll_and_verify_stage: skipped_by_parameter
+ssh_trust:
+  file: deploy/ssh_known_hosts
+  host: arnatech.id
+  manager_ip: 172.105.124.43
+  credential_reference: stag-arnatech-sa-01
+  strict_host_checking: true
+  trust_source: Public host keys retrieved through previously trusted ECDSA SSH connection.
+  ed25519_fingerprint: SHA256:Fytw9QKCeyggTnR7UCEZNguuPFviCuhpq/hRGrfHReQ
+  ecdsa_fingerprint: SHA256:ZavVfhQ33CLMlQgyn9vNvVMDEsph/4IGd7VCHQmzR7c
+  key_rotation: false
+production:
+  service: sso_service
+  runtime_changed: false
+  current_image: ardzix/arna_sso@sha256:971ac0befe4e722c5e72a0e3a630ba850facf0c0c5ab72b81b0a9f7d20657e83
+  running_replicas: 2
+  public_readiness: HTTP_200_ready
+  customer_writes: 0
+  migrations_run: false
+remaining:
+  - Photobooth activation still requires coordinated Commerce guard/configuration and SSO migration rollout.

@@ -71,6 +71,12 @@ If the manager host key changes, verify its fingerprint through a trusted
 administration channel and review an update to this file. Never accept an
 unverified `ssh-keyscan` result or disable strict checking to bypass the error.
 
+Jenkins build `#154` tested commit `d206a47`, passed all 79 isolated PostgreSQL
+tests, and published the image successfully using this pinned trust file.
+`DEPLOY=false` skipped migrations and rollout; the recovered production image
+remained unchanged. See `deploy/records/sso-jenkins-host-trust-20261014.yaml` for
+the exact published digest and runtime probe evidence.
+
 ## Production recovery on 2026-10-14
 
 Both replicas of the legacy deployment were running, but Django failed to load
