@@ -23,14 +23,18 @@ SOURCE = Path('/root/Project/arna_sso')
 BASE = Path('/root/arnatech-releases')
 
 
-def run(args, *, timeout=120, input=None, visible=False, env=None):
+def run(args, *, timeout=120, input=None, visible=False, env=None, diagnostic_path=None):
     result = subprocess.run(args, input=input, text=True, capture_output=True, timeout=timeout, env=env)
     if visible:
         # Only explicitly non-secret build and isolated-test commands use this.
         print(result.stdout[-14000:], flush=True)
         print(result.stderr[-14000:], flush=True)
     if result.returncode:
-        raise RuntimeError('Command failed: ' + ' '.join(args[:3]) + '; inspect private manager context')
+        if diagnostic_path is not None:
+            write_private(diagnostic_path, {'exit_code': result.returncode,
+                                          'stdout': result.stdout[-8000:], 'stderr': result.stderr[-8000:]})
+        detail = str(diagnostic_path) if diagnostic_path is not None else 'private manager context'
+        raise RuntimeError('Command failed: ' + ' '.join(args[:3]) + '; inspect ' + detail)
     return result.stdout
 
 
@@ -78,6 +82,8 @@ def test_image(image):
         run(['docker', 'run', '--rm', '--network', net,
              '-e', 'GIFT_TEST_POSTGRES_HOST=' + db, '-e', 'GIFT_TEST_POSTGRES_PASSWORD=' + password,
              '--entrypoint', 'python', image, 'scripts/test_gift_registration.py'], timeout=300, visible=True)
+        run(['docker', 'run', '--rm', '--network', 'none', '--entrypoint', 'python', image,
+             '-m', 'unittest', 'discover', '-s', 'deploy/tests', '-v'], visible=True)
     finally:
         subprocess.run(['docker', 'rm', '-f', db], capture_output=True)
         subprocess.run(['docker', 'network', 'rm', net], capture_output=True)
@@ -88,6 +94,20 @@ def build(commit, folder):
     current = run(['git', '-C', str(SOURCE), 'rev-parse', 'origin/main']).strip()
     if current != commit:
         raise RuntimeError('Selected commit must be the current remote main')
+    record_path = folder / 'release.json'
+    if record_path.exists():
+        record = json.loads(record_path.read_text())
+        digest = record.get('digest', '')
+        if (record.get('commit') != commit or record.get('tests') != 'passed'
+                or not re.fullmatch(re.escape(REPOSITORY) + r'@sha256:[0-9a-f]{64}', digest)):
+            raise RuntimeError('Existing release record does not identify a tested artifact')
+        run(['docker', 'pull', digest], timeout=180)
+        image = json.loads(run(['docker', 'image', 'inspect', digest]))[0]
+        if (image.get('Architecture') != 'amd64' or digest not in image.get('RepoDigests', [])
+                or image.get('Config', {}).get('Labels', {}).get('org.opencontainers.image.revision') != commit):
+            raise RuntimeError('Published artifact does not match its tested release record')
+        print(json.dumps({**record, 'artifact_reused': True}), flush=True)
+        return
     source = folder / 'source'
     if source.exists():
         raise RuntimeError('Release source already exists; use recorded artifact, never overwrite')
@@ -128,7 +148,14 @@ def roll(commit, folder):
     if record['commit'] != commit or record['tests'] != 'passed':
         raise RuntimeError('Untested or wrong artifact')
     old = inspect_service()
-    write_private(folder / 'previous-service.json', old)
+    if old['Spec']['TaskTemplate']['ContainerSpec']['Image'] == record['digest'] and record.get('status') == 'verified':
+        verify(commit, folder)
+        return
+    attempt = os.urandom(4).hex()
+    snapshot = folder / 'previous-service.json'
+    if snapshot.exists():
+        snapshot = folder / ('previous-service-' + attempt + '.json')
+    write_private(snapshot, old)
     cs = old['Spec']['TaskTemplate']['ContainerSpec']
     if cs.get('Mounts'):
         raise RuntimeError('Runtime mounts changed since inspected baseline; review before proceeding')
@@ -151,7 +178,7 @@ def roll(commit, folder):
             path = '/usr/src/app/' + path
         keys[kind] = run(['docker', 'exec', names[0], 'python', '-c', 'from pathlib import Path;import sys;sys.stdout.write(Path(sys.argv[1]).read_text())', path])
     fingerprint = hashlib.sha256(keys['PUBLIC'].encode()).hexdigest()
-    secret_names = {kind: 'sso-ols-gift-' + kind.lower() + '-' + commit[:12] for kind in ('runtime', 'private', 'public')}
+    secret_names = {kind: 'sso-ols-gift-' + kind.lower() + '-' + commit[:12] + '-' + attempt for kind in ('runtime', 'private', 'public')}
     environment['JWT_PRIVATE_KEY_PATH'] = '/run/secrets/sso_jwt_private'
     environment['JWT_PUBLIC_KEY_PATH'] = '/run/secrets/sso_jwt_public'
     environment['DB_CONNECT_TIMEOUT_SECONDS'] = '5'
@@ -180,14 +207,15 @@ def roll(commit, folder):
     for key in dict(value.split('=', 1) for value in cs.get('Env', [])):
         update += ['--env-rm', key]
     for secret in cs.get('Secrets') or []:
-        update += ['--secret-rm', secret['SecretID']]
+        # Docker CLI matches --secret-rm against SecretName, not SecretID.
+        update += ['--secret-rm', secret['SecretName']]
     update += ['--env-add', 'SSO_RUNTIME_SECRET_PATH=/run/secrets/sso_runtime']
     for kind, target in [('runtime', 'sso_runtime'), ('private', 'sso_jwt_private'), ('public', 'sso_jwt_public')]:
         update += ['--secret-add', 'source=' + secret_names[kind] + ',target=' + target + ',mode=0400']
     update += [SERVICE]
     # Same image/API + queue role as baseline. stop-first avoids an extra 4-worker
     # qcluster under the inspected manager's limited free memory.
-    run(update, timeout=420)
+    run(update, timeout=420, diagnostic_path=folder / ('rollout-error-' + attempt + '.json'))
     record.update(status='deployed', secrets=secret_names, public_key_fingerprint=fingerprint,
                   configuration_source='immutable full runtime Swarm secret; previous-service.json retained privately')
     write_private(folder / 'release.json', record)

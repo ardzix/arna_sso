@@ -77,6 +77,25 @@ tests, and published the image successfully using this pinned trust file.
 remained unchanged. See `deploy/records/sso-jenkins-host-trust-20261014.yaml` for
 the exact published digest and runtime probe evidence.
 
+### Rollout secret replacement and retries
+
+Docker CLI removes mounted secrets by `SecretName` on `service update --secret-rm`.
+Passing the ID leaves the old reference attached and a new secret at the same
+target is rejected. This was reproduced on the manager with a zero-replica
+synthetic service; removing by name successfully replaced the target.
+
+Each rollout attempt creates uniquely named immutable secrets with the existing
+configuration and original JWT key bytes, so a retry does not collide with a
+failed attempt's secret names. The original rollback snapshot is retained; later
+attempt snapshots are separate. Docker failure output is stored only in a private
+manager diagnostic file whose path appears in the exception.
+
+Rerunning the same main commit reuses a previously tested artifact only after
+checking its registry digest, image revision label and architecture. It does not
+overwrite the release's clean source directory or republish an untested image.
+An already verified, unchanged deployment runs verification again. Six isolated
+release regression tests cover these behaviors in addition to the 79 SSO tests.
+
 ## Production recovery on 2026-10-14
 
 Both replicas of the legacy deployment were running, but Django failed to load
