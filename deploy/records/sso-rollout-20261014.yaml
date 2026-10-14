@@ -1,0 +1,56 @@
+change: sso-device-commerce-exchange-and-release-retry-fix
+date: 2026-10-14
+release_operator: Codex through the existing Jenkins admin session, continuing the failed DEPLOY=true release
+repository: https://github.com/ardzix/arna_sso.git
+branch: main
+deployed_commit: 16b6f67203b557e619cdcbdc86bce72e643d151f
+deployed_digest: ardzix/arna_sso@sha256:b28d0b5f1b4fe3417786339af7de368e3044a9c382d078ca2f5a1d25e447e147
+platform: linux/amd64
+previous_digest: ardzix/arna_sso@sha256:971ac0befe4e722c5e72a0e3a630ba850facf0c0c5ab72b81b0a9f7d20657e83
+jenkins:
+  build_url: https://jenkins.arnatech.id/job/production/job/arna_sso/156/
+  result: SUCCESS
+  deploy_parameter: true
+  isolated_sso_tests: 79
+  isolated_release_regression_tests: 6
+  clean_image_check: passed
+  publication: passed
+failed_attempt:
+  build_url: https://jenkins.arnatech.id/job/production/job/arna_sso/155/
+  migration: complete_exit_0
+  rollout: rejected_before_service_mutation
+  cause: --secret-rm used SecretID; Docker matches SecretName, leaving conflicting secret mount targets.
+  reproduction: zero-replica synthetic service failed by ID and succeeded by name
+  docker_client_and_server: 29.1.3
+migration:
+  task_id: q118k5rdof3rjii8w9xfzio0b
+  outcome: complete_exit_0
+  same_release_digest_and_runtime_configuration: true
+  pending_on_both_live_replicas: false
+runtime:
+  service: sso_service
+  replicas: 2
+  update_state: completed
+  update_completed_at_utc: 2026-10-14T07:33:36.844301357Z
+  both_replicas_match_digest: true
+  both_replicas_healthy: true
+  api_and_qcluster_process_checks: passed
+  signing_key_rotation: false
+  jwt_public_key_bytes_sha256: abba671c695a529b2aba9b61535f3d98cc6241e0cd7a9f5cce302c2cf25d5c0c
+  configuration_source: complete immutable Swarm runtime secret copied from the working baseline
+  secret_references:
+    runtime: sso-ols-gift-runtime-16b6f67203b5-389cb95e
+    private: sso-ols-gift-private-16b6f67203b5-389cb95e
+    public: sso-ols-gift-public-16b6f67203b5-389cb95e
+  recovery_record: /root/arnatech-releases/sso-ols-gift-16b6f67203b5/previous-service.json
+  recovery_retention: previous images and mounted secrets retained; schema not reversed
+public_probes:
+  /health/live: 200
+  /health/ready: 200
+  unauthenticated_device_context: 401
+  empty_login_body: 400
+limits:
+  real_human_login_probe: not_performed
+  real_checkout_or_payment: not_performed
+  automatic_device_role_grants: false
+  commerce_checkout_activation: pending_separate_commerce_release_and_configuration

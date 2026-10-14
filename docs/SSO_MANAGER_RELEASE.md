@@ -96,6 +96,22 @@ overwrite the release's clean source directory or republish an untested image.
 An already verified, unchanged deployment runs verification again. Six isolated
 release regression tests cover these behaviors in addition to the 79 SSO tests.
 
+Jenkins `#155` applied the migration successfully but rejected the service update
+because old secret references were removed by ID. The runtime remained on its
+working recovery image. After the name-based replacement/retry fix, Jenkins
+`#156` ran with `DEPLOY=true`, passed 79 SSO plus six release tests, and completed
+migration, rollout and verification for application commit `16b6f67`.
+
+Both production replicas now use
+`ardzix/arna_sso@sha256:b28d0b5f1b4fe3417786339af7de368e3044a9c382d078ca2f5a1d25e447e147`
+and are healthy, with no pending migrations. The original JWT keys and complete
+runtime configuration were copied into new immutable references. Public health
+paths returned 200, unauthenticated context returned 401 and empty login input
+returned 400. See `deploy/records/sso-rollout-20261014.yaml` for exact evidence.
+Checkout activation still requires the separate Commerce release/configuration
+and explicit owner device-role assignment; this SSO rollout grants no device
+checkout permission automatically.
+
 ## Production recovery on 2026-10-14
 
 Both replicas of the legacy deployment were running, but Django failed to load
