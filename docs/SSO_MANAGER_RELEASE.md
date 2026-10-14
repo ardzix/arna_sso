@@ -56,6 +56,21 @@ resulting runtime returned HTTP 500. The October 14 recovery was executed throug
 the authorized manager connection, not through a new Jenkins build. Source
 configuration verification does not claim a successful run of the new pipeline.
 
+### Manager SSH trust on Jenkins agents
+
+All release SSH/SCP commands use the versioned public host keys in
+`deploy/ssh_known_hosts`, with strict verification, a bounded connection timeout
+and the existing Jenkins SSH identity. They do not rely on the executing agent's
+home-directory known_hosts. The ED25519 and ECDSA keys were retrieved on
+2026-10-14 over the existing trusted ECDSA connection to `172.105.124.43` and the
+ECDSA key matched the previously trusted entry for `arnatech.id,172.105.124.43`.
+DNS resolved the manager domain to that same address. These are public server
+host keys, not the application's JWT keys or a login private key.
+
+If the manager host key changes, verify its fingerprint through a trusted
+administration channel and review an update to this file. Never accept an
+unverified `ssh-keyscan` result or disable strict checking to bypass the error.
+
 ## Production recovery on 2026-10-14
 
 Both replicas of the legacy deployment were running, but Django failed to load

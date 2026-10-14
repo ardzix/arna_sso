@@ -18,9 +18,11 @@ pipeline {
                     sh '''
                         set -eu
                         set +x
-                        ssh -i "$SSO_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 root@arnatech.id 'mkdir -p /root/arnatech-releases; chmod 700 /root/arnatech-releases'
-                        scp -i "$SSO_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes deploy/release.py root@arnatech.id:/root/arnatech-releases/sso-release-entry.py
-                        ssh -i "$SSO_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 root@arnatech.id python3 /root/arnatech-releases/sso-release-entry.py build "$(cat release-commit.txt)"
+                        SSO_KNOWN_HOSTS="deploy/ssh_known_hosts"
+                        test -s "$SSO_KNOWN_HOSTS"
+                        ssh -i "$SSO_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSO_KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 root@arnatech.id 'mkdir -p /root/arnatech-releases; chmod 700 /root/arnatech-releases'
+                        scp -i "$SSO_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSO_KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 deploy/release.py root@arnatech.id:/root/arnatech-releases/sso-release-entry.py
+                        ssh -i "$SSO_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSO_KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 root@arnatech.id python3 /root/arnatech-releases/sso-release-entry.py build "$(cat release-commit.txt)"
                     '''
                 }
             }
@@ -32,7 +34,9 @@ pipeline {
                     sh '''
                         set -eu
                         set +x
-                        ssh -i "$SSO_SSH_KEY" -o BatchMode=yes -o StrictHostKeyChecking=yes -o ConnectTimeout=15 root@arnatech.id python3 /root/arnatech-releases/sso-release-entry.py roll "$(cat release-commit.txt)"
+                        SSO_KNOWN_HOSTS="deploy/ssh_known_hosts"
+                        test -s "$SSO_KNOWN_HOSTS"
+                        ssh -i "$SSO_SSH_KEY" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$SSO_KNOWN_HOSTS" -o GlobalKnownHostsFile=/dev/null -o ConnectTimeout=15 root@arnatech.id python3 /root/arnatech-releases/sso-release-entry.py roll "$(cat release-commit.txt)"
                     '''
                 }
             }

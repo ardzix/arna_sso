@@ -1,0 +1,4 @@
+# Production manager keys verified through the existing trusted ECDSA SSH connection.
+# arnatech.id resolved to 172.105.124.43 on 2026-10-14. Public host keys only.
+arnatech.id,172.105.124.43 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIEvXpRlgfXzh/J83eTKpqxfOS0iYVGTAMkyqVM3kklVU
+arnatech.id,172.105.124.43 ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBD3xpFojczBrIynE0OEMK0slq3BVneuZb1hZPRG7fcafH9SVvuj+nS5wK7zNrBGFlbwHSWr4dMrvUWuLpuNBKoY=
