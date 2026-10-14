@@ -33,4 +33,5 @@ with tempfile.TemporaryDirectory(prefix="ols-gift-sso-test-") as folder:
     call_command("makemigrations", check=True, dry_run=True)
     call_command("test", "authentication.tests.test_gift_registration", "authentication.tests.test_website_service",
                  "authentication.tests.test_website_proof", "authentication.tests.test_wa_otp_throttling",
-                 "authentication.tests.test_device_authorization", "authentication.tests.test_device_iam", "iam.tests", verbosity=2)
+                 "authentication.tests.test_device_authorization", "authentication.tests.test_device_iam",
+                 "authentication.tests.test_device_commerce", "iam.tests", verbosity=2)

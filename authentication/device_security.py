@@ -133,11 +133,11 @@ def device_token_registration(raw, audience):
                                                  "device_id", "client_id", "organization_id", "org_id", "tenant_id",
                                                  "scopes", "credential_version"]})
         registration = DeviceRegistration.objects.get(pk=uuid.UUID(claims["device_id"]), is_active=True)
-        from iam.effective import effective_access, STORAGE_PERMISSIONS
+        from iam.effective import effective_access, RESOURCE_PERMISSIONS
         roles, permissions = effective_access(registration, registration.organization, device=True)
-        storage_scopes = sorted(set(permissions) & STORAGE_PERMISSIONS)
-        resource_token = claims['aud'] == 'storage' and registration.audience != 'storage'
-        expected_scopes = storage_scopes if resource_token else registration.scopes
+        resource_scopes = sorted(set(permissions) & RESOURCE_PERMISSIONS.get(claims['aud'], set()))
+        resource_token = claims['aud'] in RESOURCE_PERMISSIONS and registration.audience != claims['aud']
+        expected_scopes = resource_scopes if resource_token else registration.scopes
         if (claims["token_type"] != "device" or claims.get("principal_type") != "device"
                 or claims["sub"] != str(registration.pk) or claims["client_id"] != registration.client_id
                 or claims["organization_id"] != str(registration.organization_id)
@@ -145,8 +145,9 @@ def device_token_registration(raw, audience):
                 or claims["tenant_id"] != str(registration.tenant_id)
                 or (claims["aud"] != registration.audience and not resource_token)
                 or claims["scopes"] != expected_scopes
-                or (claims['aud'] == 'storage' and (not storage_scopes or claims.get('permissions') != storage_scopes
-                                                   or not set(expected_scopes).issubset(storage_scopes)))
+                or (resource_token and (not resource_scopes or claims.get('permissions') != resource_scopes))
+                or (claims['aud'] == 'arna-commerce' and (registration.audience != 'photobooth-api'
+                    or claims.get('source_audience') != registration.audience or claims.get('is_owner') is not False))
                 or registration.audience not in settings.DEVICE_ALLOWED_AUDIENCES
                 or not set(registration.scopes).issubset(settings.DEVICE_AUDIENCE_SCOPES.get(registration.audience, []))
                 or type(claims["credential_version"]) is not int

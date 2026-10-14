@@ -16,7 +16,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from audit_logging.models import AuditLog
 from iam.models import Role, Permission, DeviceRole, DevicePermission
-from iam.effective import effective_access, STORAGE_PERMISSIONS
+from iam.effective import effective_access, RESOURCE_PERMISSIONS
 from .models import DeviceRegistration
 from .device_context import active_organization, active_context
 from .device_security import tenant_workspaces, verify_tenant, device_token_registration, verify_dpop
@@ -158,32 +158,37 @@ class ResourceTokenView(DeviceAPIView):
     authentication_classes = [ResourceSubjectAuthentication]
     permission_classes = [IsAuthenticated]
 
-    @swagger_auto_schema(request_body=ResourceTokenSerializer, operation_summary='Issue a File Manager token using current SSO IAM grants')
+    @swagger_auto_schema(request_body=ResourceTokenSerializer, operation_summary='Issue a resource token using current SSO IAM grants')
     def post(self, request):
-        _validated(ResourceTokenSerializer, request.data)
+        audience = _validated(ResourceTokenSerializer, request.data)['audience']
+        if audience == 'arna-commerce' and not isinstance(request.user, ResourceDevicePrincipal):
+            raise PermissionDenied('This Commerce exchange requires a paired photobooth device token.')
+        resource_permissions = RESOURCE_PERMISSIONS[audience]
         subject_exp = request.auth.get('exp') if request.auth is not None else None
         expires_in = min(settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60,
                          max(0, subject_exp - int(time.time()))) if subject_exp is not None else settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60
         if isinstance(request.user, ResourceDevicePrincipal):
             device = request.user.registration
+            if audience == 'arna-commerce' and device.audience != 'photobooth-api':
+                raise PermissionDenied('Commerce device checkout requires a photobooth device registration.')
             _, permissions = effective_access(device, device.organization, device=True)
-            if not set(permissions) & STORAGE_PERMISSIONS:
-                raise PermissionDenied('This device has no File Manager permissions. Assign an SSO role or permission first.')
-            token = _device_access_token(device, audience='storage', subject_exp=subject_exp)
+            if not set(permissions) & resource_permissions:
+                raise PermissionDenied(f'This device has no {audience} permissions. Assign an SSO role or permission first.')
+            token = _device_access_token(device, audience=audience, subject_exp=subject_exp)
             kind = 'DPoP' if device.public_key_thumbprint else 'Bearer'
         else:
             context = active_context(request.user, manage=False)
             roles, permissions = effective_access(request.user, context.organization)
             owner = context.organization.owner_id == request.user.pk
-            permissions = sorted(STORAGE_PERMISSIONS if owner else set(permissions) & STORAGE_PERMISSIONS)
+            permissions = sorted(resource_permissions if owner else set(permissions) & resource_permissions)
             if not permissions:
-                raise PermissionDenied('No File Manager permissions in this workspace.')
+                raise PermissionDenied(f'No {audience} permissions in this workspace.')
             access = AccessToken.for_user(request.user)
             access.set_exp(lifetime=timedelta(minutes=settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
             if subject_exp is not None:
                 access['exp'] = min(access['exp'], subject_exp)
             access['iss'] = settings.DEVICE_TOKEN_ISSUER
-            access['aud'] = 'storage'
+            access['aud'] = audience
             access['principal_type'] = 'user'
             access['org_id'] = str(context.organization_id)
             access['organization_id'] = str(context.organization_id)
@@ -192,4 +197,4 @@ class ResourceTokenView(DeviceAPIView):
             access['is_owner'] = owner
             token, kind = str(access), 'Bearer'
         return Response({'access_token': token, 'token_type': kind,
-                         'expires_in': expires_in, 'audience': 'storage'})
+                         'expires_in': expires_in, 'audience': audience})

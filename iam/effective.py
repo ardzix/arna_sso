@@ -5,6 +5,10 @@ STORAGE_PERMISSIONS = {
     "storage.files.read", "storage.files.create", "storage.files.update",
     "storage.files.delete", "storage.files.share", "storage.folders.create",
 }
+COMMERCE_DEVICE_PERMISSIONS = {
+    'commerce.orders.read', 'commerce.orders.write', 'commerce.payments.create',
+}
+RESOURCE_PERMISSIONS = {'storage': STORAGE_PERMISSIONS, 'arna-commerce': COMMERCE_DEVICE_PERMISSIONS}
 
 
 def effective_access(subject, organization, *, device=False):

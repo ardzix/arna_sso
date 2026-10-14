@@ -118,4 +118,4 @@ class DeviceAccessSerializer(serializers.Serializer):
 
 
 class ResourceTokenSerializer(serializers.Serializer):
-    audience = serializers.ChoiceField(choices=['storage'])
+    audience = serializers.ChoiceField(choices=['storage', 'arna-commerce'])

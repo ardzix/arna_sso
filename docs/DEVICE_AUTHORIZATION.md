@@ -25,9 +25,10 @@ belong in the installed kiosk agent/secure OS storage, outside that public scree
 
 Default audience: `photobooth-api`. Default allowed scopes:
 `photobooth.session`, `photobooth.session.write`. The application should request
-only the scope it actually implements. Commerce remains a product-backend service
-call. File Manager uses a separate `storage` resource token with current SSO IAM
-permissions, as described below; do not add storage scopes to pairing requests.
+only the scope it actually implements. File Manager uses a separate `storage`
+resource token. Photobooth checkout uses a separate `arna-commerce` resource
+token. Both use current SSO IAM permissions; do not add resource permissions to
+pairing scopes.
 
 Device JWTs are RS256 with `iss=https://sso.arnatech.id`, `aud`, `sub=device_id`,
 `token_type=device`, `principal_type=device`, `device_id`, `client_id`, `org_id`,
@@ -238,3 +239,43 @@ Use the existing Jenkins/Swarm migration gate before rollout; do not run
 against disposable PostgreSQL and synthetic RSA keys, including device contract
 tests. This guide describes implementation behavior, not confirmation that a
 production rollout has occurred.
+
+## Photobooth device Commerce checkout
+
+After pairing with `audience=photobooth-api`, the tenant owner assigns an
+organization role containing `commerce.orders.read`, `commerce.orders.write`,
+and `commerce.payments.create` through `registrations/{device_id}/access/`.
+Migration `iam.0013_photobooth_commerce_permissions` adds these catalogue entries
+for existing organizations; new organizations receive them too. It grants no
+device access automatically.
+
+The kiosk exchanges its base device token at `POST resource-token/` with
+`{"audience":"arna-commerce"}`. The resulting device JWT contains only the three
+checkout permissions actually assigned, equal `permissions` and `scopes`,
+`source_audience=photobooth-api`, and `is_owner=false`. It preserves the device,
+organization, tenant, credential version and optional key binding. Its lifetime
+does not exceed the source token's expiry. Use the default five-minute access
+lifetime (Commerce accepts at most fifteen minutes). Other device audiences
+cannot exchange checkout tokens. `commerce.payments.process` is excluded even
+when present in a role; payment completion remains a trusted backend event.
+
+Commerce verifies JWTs for `audience=arna-commerce`, then introspects every device
+request using its dedicated backend-only `arna-sso-devices` service account. SSO
+checks current registration, tenant, version, permissions and pairing audience.
+Removing a checkout permission or revoking/replacing the device invalidates an
+old checkout token. A new exchange reflects the new assignment. Storage and
+Commerce tokens cannot substitute for one another or for the base pairing token.
+
+Commerce limits devices to configured one-time photobooth catalogue items and
+their own organization/tenant/device orders and invoices. Per-action permission
+checks apply; owner/admin role names never elevate a device to a human admin.
+Every POST requires a stable `Idempotency-Key`. Key-bound devices also send a
+fresh DPoP proof for each exchange/request, including retries.
+
+Migrate Commerce `common.0002` and `billing.0004`/`billing.0005`, then roll its
+strict device checkout guard before enabling the SSO Commerce exchange. Release
+SSO with `iam.0013`, then assign checkout grants. Configure Commerce's exact
+`PHOTOBOOTH_PRODUCT_CODES`, issuer/public key, public URL, and dedicated inspector
+credentials. No product, price, tenant role assignment or provider credential is
+created by these migrations. See the Commerce `docs/PHOTOBOOTH_DEVICE_CHECKOUT.md`
+for checkout requests, retry behavior and rollout checks.

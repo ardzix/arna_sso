@@ -32,7 +32,7 @@ from .device_serializers import (DeviceAuthorizeSerializer, DeviceDecisionSerial
                                  DeviceTokenSerializer, DeviceRefreshSerializer)
 from .device_security import verify_tenant, verify_dpop
 from .device_context import active_organization, active_context
-from iam.effective import effective_access, STORAGE_PERMISSIONS
+from iam.effective import effective_access, RESOURCE_PERMISSIONS
 
 
 DEVICE_FLOW_GUIDE = """
@@ -89,9 +89,11 @@ def _device_access_token(registration, audience=None, subject_exp=None):
     token["aud"] = audience or registration.audience
     roles, permissions = effective_access(registration, registration.organization, device=True)
     token["roles"] = roles
-    token["permissions"] = sorted(set(permissions) & STORAGE_PERMISSIONS) if audience == 'storage' else permissions
+    token["permissions"] = sorted(set(permissions) & RESOURCE_PERMISSIONS[audience]) if audience in RESOURCE_PERMISSIONS else permissions
     token["is_owner"] = False
-    token["scopes"] = token['permissions'] if audience == 'storage' else registration.scopes
+    token["scopes"] = token['permissions'] if audience in RESOURCE_PERMISSIONS else registration.scopes
+    if audience in RESOURCE_PERMISSIONS:
+        token['source_audience'] = registration.audience
     if registration.public_key_thumbprint:
         token["cnf"] = {"jkt": registration.public_key_thumbprint}
     return str(token)

@@ -15,6 +15,7 @@ from .device_security import device_token_registration, verify_dpop
 from .device_serializers import DeviceIntrospectionSerializer, DeviceStatusResponseSerializer, DeviceErrorSerializer
 from .device_views import DeviceAPIView, _validated, _registration_data
 from .models import ServiceAccount
+from iam.effective import RESOURCE_PERMISSIONS
 
 INTROSPECTION_AUDIENCE = "arna-sso-devices"
 INTROSPECTION_SCOPE = "sso.device.introspect"
@@ -76,7 +77,7 @@ class DeviceStatusView(DeviceAPIView):
             raw = header[1].decode("ascii")
         except UnicodeDecodeError as exc:
             raise AuthenticationFailed("Invalid device authorization.") from exc
-        registration, _ = device_token_registration(raw, settings.DEVICE_ALLOWED_AUDIENCES + ['storage'])
+        registration, _ = device_token_registration(raw, settings.DEVICE_ALLOWED_AUDIENCES + list(RESOURCE_PERMISSIONS))
         if registration.public_key_thumbprint:
             if header[0].lower() != b"dpop":
                 raise AuthenticationFailed("Use DPoP authorization for a key-bound device token.")
@@ -100,7 +101,7 @@ class DeviceIntrospectionView(DeviceAPIView):
                          }), 400: DeviceErrorSerializer, 401: DeviceErrorSerializer, 403: DeviceErrorSerializer})
     def post(self, request):
         data = _validated(DeviceIntrospectionSerializer, request.data)
-        if data["audience"] not in settings.DEVICE_ALLOWED_AUDIENCES + ['storage']:
+        if data["audience"] not in settings.DEVICE_ALLOWED_AUDIENCES + list(RESOURCE_PERMISSIONS):
             raise PermissionDenied("Unsupported device audience.")
         try:
             registration, claims = device_token_registration(data["access_token"], data["audience"])
