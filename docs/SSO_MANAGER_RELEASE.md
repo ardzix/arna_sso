@@ -40,18 +40,52 @@ references as well as the image, and verify two replicas plus public health path
 Never reverse migrations or delete identity/gift data as an application rollback.
 Retain previous images and keys; do not broadly prune Swarm secrets.
 
-## Jenkins reconciliation boundary
+## Jenkins source of truth
 
-The inspected legacy `production/arna_sso` job still has an inline pipeline that
-copies PEM/environment into a build and removes/recreates the service. It has no
-automatic triggers and **was not run for this release**. Do not run that legacy
-job against this deployment. The safe versioned replacement is `Jenkinsfile`,
-using the existing `stag-arnatech-sa-01` credential and strict trusted-host SSH.
-It calls the same bounded manager release gates and defaults DEPLOY=false.
+On 2026-10-14, the live `production/arna_sso` job was switched through the existing
+authenticated Jenkins admin browser session to **Pipeline script from SCM**:
+`https://github.com/ardzix/arna_sso.git`, branch `*/main`, script `Jenkinsfile`.
+The saved UI and on-disk `CpsScmFlowDefinition` were both verified. No credential,
+permission, or trigger was added. The pipeline uses the existing
+`stag-arnatech-sa-01` identity, preserves secret mounts, runs a separate migration
+gate, and defaults `DEPLOY=false`.
 
-Switching the live Jenkins job to this versioned file requires an authenticated
-Jenkins administrator to apply/reload its job configuration. Manager SSH access
-is not used to forge a Jenkins login or mint an API token. This live job switch
-has not been performed; the durable source for the deployed release is the
-versioned manager entrypoint plus immutable Swarm runtime configuration. This is
-an explicit manual-manager release, not a claimed green Jenkins build.
+The old inline pipeline must not be restored: it removed/recreated the service
+and omitted the JWT secret mounts. Jenkins build 152 reported success while the
+resulting runtime returned HTTP 500. The October 14 recovery was executed through
+the authorized manager connection, not through a new Jenkins build. Source
+configuration verification does not claim a successful run of the new pipeline.
+
+## Production recovery on 2026-10-14
+
+Both replicas of the legacy deployment were running, but Django failed to load
+because `/usr/src/app/private.pem` and `public.pem` were absent. Five migrations
+were also pending. The active image's 178 tracked files matched application commit
+`cb338d36c3abb2dca18be886799fdd058643743b`; 75 contract/concurrency tests passed
+inside that exact image using disposable PostgreSQL and synthetic keys.
+
+Recovered runtime digest:
+`ardzix/arna_sso@sha256:971ac0befe4e722c5e72a0e3a630ba850facf0c0c5ab72b81b0a9f7d20657e83`.
+The original private/public secrets were reused, and their public-key fingerprint
+and key-pair consistency were verified. Current complete service configuration
+was preserved in immutable secret `sso-recovery-runtime-cb338d36-20261014`, with
+JWT paths pointing to the mounted keys and a bounded database connection timeout.
+No signing key or database credential was rotated.
+
+A private database backup completed before migration. One migration task using
+the same digest, secrets and production overlay completed with exit code 0:
+`w11njcegbeync4quq3gpvmpf2`. It applied `authentication.0015`/`0016`,
+`organization.0005`, and `iam.0011`/`0012`. As designed, `0015` invalidates legacy
+device pairings; those devices require explicit approval and pairing again.
+
+The existing service was rolled one replica at a time, without removal/recreation.
+Both replicas became healthy and the update completed. Public `/health/live`,
+`/health/ready` and `/login/` returned 200; unauthenticated device context returned
+401 and empty login input returned 400. Both replicas passed migration drift and
+local readiness checks; API and queue processes were running. A successful human
+sign-in was not claimed from these probes.
+
+Private recovery specification, database backup, task logs and detailed record
+are retained under `/root/arnatech-releases/sso-recovery-20261014/`. The sanitized
+[recovery record](../deploy/records/sso-recovery-20261014.yaml) contains references
+and outcomes only. Database backup/configuration contents must remain off Git.

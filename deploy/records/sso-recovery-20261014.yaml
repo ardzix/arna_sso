@@ -1,0 +1,60 @@
+release:
+  id: sso-recovery-20261014
+  requested_scope: Restore production SSO after missing JWT keys and pending migrations
+  authorization_reference: User instruction "fix itu" after incident diagnosis
+  verified_at_utc: "2026-10-14 02:16:51 UTC"
+  status: verified
+actors:
+  release_operator: Codex via previously authorized manager SSH access
+  configuration_operator: Existing authenticated Jenkins admin browser session
+source:
+  repository: https://github.com/ardzix/arna_sso
+  branch: main
+  commit_full: cb338d36c3abb2dca18be886799fdd058643743b
+  image_source_files_verified: 178
+jenkins:
+  job_url: https://jenkins.arnatech.id/job/production/job/arna_sso/
+  build_number: null
+  recovery_executed_via: manager recovery script
+  configuration: CpsScmFlowDefinition; branch */main; script Jenkinsfile
+  deploy_enabled_by_default: false
+  credentials_or_triggers_changed: false
+  new_pipeline_build_executed: false
+artifact:
+  digest: ardzix/arna_sso@sha256:971ac0befe4e722c5e72a0e3a630ba850facf0c0c5ab72b81b0a9f7d20657e83
+  publication: Existing registry artifact reused after exact-source and isolated-test verification
+configuration:
+  source_of_truth_reference: Immutable Swarm runtime secret plus repository Jenkinsfile
+  credential_references:
+    - sso-recovery-runtime-cb338d36-20261014
+    - sso-ols-gift-private-1afdb8fcff2f
+    - sso-ols-gift-public-1afdb8fcff2f
+  original_signing_key_preserved: true
+  current_complete_environment_preserved: true
+  hotfix_reconciled: true
+migration:
+  backup_reference: Private manager recovery directory; before-device-migrations.dump
+  task_id: w11njcegbeync4quq3gpvmpf2
+  exit_code: 0
+  outcome: pass
+  applied: [authentication.0015, authentication.0016, organization.0005, iam.0011, iam.0012]
+  compatibility_and_recovery: Legacy device pairings invalidated as required; application rollback does not reverse schema or re-enable credentials
+gates:
+  source_and_tests: {outcome: pass, evidence: "178 source files matched main; 75 tests passed on the exact image with disposable PostgreSQL"}
+  runtime_validation: {outcome: pass, evidence: "Original public-key fingerprint preserved; private/public pair matched; Django checks passed"}
+  migration: {outcome: pass, evidence: "Single task complete with exit 0; no pending migrations on either replica"}
+  rollout: {outcome: pass, evidence: "Update completed; two healthy replicas; image pinned by digest"}
+  public_routes: {outcome: pass, evidence: "Health/live, health/ready and login page 200; missing device credentials 401; empty login input 400"}
+  worker_processes: {outcome: pass, evidence: "API and qcluster processes running on both replicas"}
+  human_session_login: {outcome: skipped, evidence: "No production user's credentials used for a successful sign-in probe"}
+  jenkins_execution: {outcome: skipped, evidence: "SCM job configuration saved and inspected; no new Jenkins build run"}
+services:
+  - name: sso_service
+    desired_replicas: 2
+    healthy_replicas: 2
+cleanup:
+  transient_tasks: Removed isolated test database/network, validation task and migration task
+  rollback_artifacts_retained: Previous verified image, original keys, private service specifications and database backup
+remaining_actions:
+  - Owners must pair legacy devices again before using them
+  - File Manager and frontend rollout remains separate from this SSO recovery
