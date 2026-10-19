@@ -74,6 +74,16 @@ Use for a trusted backend rather than an end user.
 4. Use returned `access` as a Bearer token for the configured audience.
 5. Request another service token after expiry. No refresh token is issued.
 
+Service credential exchange has separate rate budgets from anonymous human traffic:
+`SSO_SERVICE_TOKEN_IP_RATE` defaults to `60/minute` across the endpoint,
+`SSO_SERVICE_TOKEN_CLIENT_RATE` to `10/minute` per verified active service account,
+and `SSO_SERVICE_TOKEN_FAILURE_RATE` to `5/minute` for failed credentials per IP/client.
+Successful exchanges do not consume the failure budget. Client-secret verification,
+registered audience/scopes, ownership and expiry checks still apply. Other endpoints
+retain their existing anonymous/user limits. These throttles use the configured Django
+cache; the current LocMem backend enforces each budget per SSO process. A shared cache
+is required to make those budgets global across replicas.
+
 ## Device authorization flow
 
 New clients use `/api/v1/devices/`; the legacy routes below remain aliases.

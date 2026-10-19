@@ -255,6 +255,9 @@ REST_FRAMEWORK = {
         "user": "1000/day",
         "mfa_verify": "5/minute",
         "login_attempt": "10/minute",
+        "service_token_ip": os.getenv("SSO_SERVICE_TOKEN_IP_RATE", "60/minute"),
+        "service_token_client": os.getenv("SSO_SERVICE_TOKEN_CLIENT_RATE", "10/minute"),
+        "service_token_failures": os.getenv("SSO_SERVICE_TOKEN_FAILURE_RATE", "5/minute"),
     },
 }
 

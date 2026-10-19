@@ -26,6 +26,9 @@ from rest_framework.exceptions import Throttled
 from rest_framework_simplejwt.exceptions import TokenError
 from django.core.exceptions import ValidationError
 from django.db import transaction
+from .service_throttles import (
+    ServiceTokenIPThrottle, ServiceTokenFailureThrottle, AuthenticatedServiceTokenThrottle,
+)
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -51,6 +54,7 @@ class ServiceTokenView(APIView):
     """
     permission_classes = [AllowAny]
     authentication_classes = []
+    throttle_classes = [ServiceTokenIPThrottle]
 
     @swagger_auto_schema(
         operation_summary="Service account token",
@@ -73,11 +77,20 @@ class ServiceTokenView(APIView):
         responses={200: openapi.Response(description="Service access token", examples={"application/json": {"access": "eyJ...", "token_type": "Bearer", "expires_in": 300}}), 400: "Audience is missing or not configured for this service", 401: "Invalid client credentials"},
     )
     def post(self, request):
+        failures = ServiceTokenFailureThrottle()
+        if not failures.allow_request(request, self):
+            self.throttled(request, failures.wait())
         client_id = str(request.data.get("client_id", "")).strip()
         client_secret = str(request.data.get("client_secret", ""))
         service = ServiceAccount.objects.filter(client_id=client_id, is_active=True).first()
         if not service or not service.check_client_secret(client_secret):
+            failures.record_failure()
             return Response({"error": "Invalid client credentials."}, status=status.HTTP_401_UNAUTHORIZED)
+
+        self.authenticated_service = service
+        client_budget = AuthenticatedServiceTokenThrottle()
+        if not client_budget.allow_request(request, self):
+            self.throttled(request, client_budget.wait())
 
         token = AccessToken()
         token.set_exp(lifetime=timedelta(minutes=settings.SERVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
