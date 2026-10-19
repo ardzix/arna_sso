@@ -156,6 +156,8 @@ class PreAuthTokenSerializer(serializers.Serializer):
         token = RefreshToken.for_user(user)
         # Customize the token
         token["type"] = "pre_auth"
+        from .mfa import fingerprint
+        token["mfa_fingerprint"] = fingerprint(user.mfa_secret)
         del token["token_type"] # Remove access/refresh type
         
         # Set short expiration from settings
