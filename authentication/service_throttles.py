@@ -15,7 +15,7 @@ class ServiceTokenFailureThrottle(ServiceTokenIPThrottle):
     scope = 'service_token_failures'
 
     def get_cache_key(self, request, view):
-        client = str(request.data.get('client_id', ''))
+        client = str(request.data.get('client_id', '')).strip()
         if len(client) > 200:
             client = '<oversized>'
         ident = hashlib.sha256((self.get_ident(request) + '\0' + client).encode()).hexdigest()
