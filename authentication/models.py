@@ -58,10 +58,9 @@ class User(AbstractBaseUser, PermissionsMixin):
         return self.get(email=email)
 
     def generate_mfa_secret(self):
-        """Generate a new MFA secret for the user."""
-        self.mfa_secret = pyotp.random_base32()
-        self.mfa_enabled = True
-        self.save()
+        """Start enrollment without changing the account's active factor."""
+        from .mfa import begin_enrollment
+        return begin_enrollment(self.pk)
 
     def verify_mfa(self, token):
         """Verify the provided MFA token."""
@@ -83,6 +82,28 @@ class User(AbstractBaseUser, PermissionsMixin):
     def get_short_name(self):
         """Return the email as the short name."""
         return self.email
+
+
+class MFAState(models.Model):
+    """Shared enrollment, attempt and replay state; never exposed in user APIs."""
+    user = models.OneToOneField(User, primary_key=True, on_delete=models.CASCADE)
+    pending_secret = models.CharField(max_length=32, blank=True, default="")
+    pending_expires_at = models.DateTimeField(null=True, blank=True)
+    window_started_at = models.DateTimeField(default=timezone.now)
+    attempts = models.PositiveIntegerField(default=0)
+    last_counter = models.BigIntegerField(default=-1)
+    secret_fingerprint = models.CharField(max_length=64, blank=True, default="")
+
+
+class MFAConsumedChallenge(models.Model):
+    challenge_hash = models.CharField(max_length=64, primary_key=True)
+    expires_at = models.DateTimeField(db_index=True)
+
+
+class MFAInvalidAttemptBucket(models.Model):
+    key = models.CharField(max_length=64, primary_key=True)
+    window_started_at = models.DateTimeField(default=timezone.now)
+    attempts = models.PositiveIntegerField(default=0)
 
 
 class CorsAllowedOrigin(models.Model):

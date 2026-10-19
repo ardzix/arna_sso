@@ -21,7 +21,11 @@ from django.core.mail import send_mail
 from django.conf import settings
 from authentication.serializers import PasswordResetRequestSerializer, PasswordResetConfirmSerializer, ChangePasswordSerializer
 from user_profile.models import UserProfile
-from django.core.cache import cache
+from .mfa import begin_enrollment, verify_factor, limit_invalid_challenge
+from rest_framework.exceptions import Throttled
+from rest_framework_simplejwt.exceptions import TokenError
+from django.core.exceptions import ValidationError
+from django.db import transaction
 
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
@@ -288,7 +292,7 @@ class SetMFAView(APIView):
     permission_classes = [IsAuthenticated]
 
     @swagger_auto_schema(
-        operation_description="Set up MFA for the user and return the MFA secret and QR code URL.",
+        operation_description="Start a pending MFA enrollment. Confirm the authenticator code at mfa/confirm/ before MFA becomes active.",
         responses={
             200: openapi.Response(
                 description="MFA secret and QR code URL returned",
@@ -313,17 +317,16 @@ class SetMFAView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        user.generate_mfa_secret()
-        totp = pyotp.TOTP(user.mfa_secret)
-
-        # Emit signal for MFA setup action
-        mfa_setup.send(
-            sender=self.__class__, user=user, metadata={"mfa_secret": user.mfa_secret}
-        )
+        secret = begin_enrollment(user.pk)
+        if secret is None:
+            return Response({"error": "MFA is already enabled."}, status=400)
+        totp = pyotp.TOTP(secret)
 
         return Response(
             {
-                "mfa_secret": user.mfa_secret,
+                "mfa_secret": secret,
+                "mfa_enabled": False,
+                "enrollment_pending": True,
                 "qr_code_url": totp.provisioning_uri(user.email, issuer_name="Arna SSO"),
             }
         )
@@ -360,8 +363,9 @@ class DisableMFAView(APIView):
             401: "Unauthorized",
         },
     )
+    @transaction.atomic
     def post(self, request):
-        user = request.user
+        user = User.objects.select_for_update().get(pk=request.user.pk)
 
         if not user.mfa_secret:
             return Response(
@@ -396,7 +400,11 @@ class DisableMFAView(APIView):
 
         user.mfa_secret = None
         user.mfa_enabled = False
-        user.save()
+        user.save(update_fields=["mfa_secret", "mfa_enabled"])
+        from .models import MFAState
+        MFAState.objects.filter(user=user).update(pending_secret="", pending_expires_at=None)
+        from audit_logging.models import AuditLog
+        AuditLog.objects.create(user=user, action="mfa_disabled", metadata={})
 
         # Emit signal (optional, but good practice for audit logs if we had them here)
         # For now just return success
@@ -503,6 +511,11 @@ class MFAAwareLoginView(APIView):
 
 
 class MFAVerifyView(APIView):
+    permission_classes = [AllowAny]
+    # Valid challenges use a shared per-account DB limit below. Traffic from
+    # service-token/device endpoints must not exhaust the MFA login budget.
+    throttle_classes = []
+
     throttle_scope = 'mfa_verify'
     
     @swagger_auto_schema(
@@ -534,68 +547,63 @@ class MFAVerifyView(APIView):
         },
     )
     def post(self, request, *args, **kwargs):
+        if not isinstance(request.data, dict):
+            limit_invalid_challenge(request)
+            return Response({"error": "invalid", "detail": "Expected a JSON object."}, status=400)
         pre_auth_token = request.data.get("token")
-        mfa_code = request.data.get("mfa_token")
-
-        if not pre_auth_token or not mfa_code:
-             return Response(
-                {"error": "Missing token or MFA code"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
-
+        # Compatibility for the existing authenticated profile confirmation UI.
+        if not pre_auth_token and request.user.is_authenticated:
+            return MFAConfirmView().post(request)
+        if not isinstance(pre_auth_token, str) or len(pre_auth_token) > 8192:
+            limit_invalid_challenge(request)
+            return Response({"error": "invalid_session", "detail": "Login again to start MFA verification."}, status=401)
         try:
-            # 1. Validate the Pre-Auth Token
-            valid_data = UntypedToken(pre_auth_token)
-            
-            # Check token type
-            if valid_data.get("type") != "pre_auth":
-                 return Response(
-                    {"error": "Invalid token type"},
-                    status=status.HTTP_401_UNAUTHORIZED,
-                )
+            claims = UntypedToken(pre_auth_token)
+            if claims.get("type") != "pre_auth" or not claims.get("jti") or not claims.get("mfa_fingerprint"):
+                raise ValueError("Wrong challenge type")
+            user = User.objects.get(pk=claims.get("user_id"), is_active=True)
+        except (TokenError, ValueError, TypeError, ValidationError, User.DoesNotExist):
+            limit_invalid_challenge(request)
+            return Response({"error": "invalid_session", "detail": "Invalid or expired MFA session. Please login again."}, status=401)
+        error, wait = verify_factor(user.pk, request.data.get("mfa_token"), challenge=claims)
+        if error:
+            return mfa_failure(error, wait)
+        user.refresh_from_db()
+        refresh = MyTokenObtainPairSerializer.get_token(user)
+        return Response({"refresh": str(refresh), "access": str(refresh.access_token)})
 
-            user_id = valid_data.get("user_id")
-            user = User.objects.get(id=user_id)
 
-            # 2. Verify the TOTP Code Check Cache for Replay Attack
-            cache_key = f"mfa_used_{user.id}_{mfa_code}"
-            if cache.get(cache_key):
-                 return Response(
-                    {"error": "Invalid MFA code (Token reused)"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
+def mfa_failure(error, wait=None):
+    if wait:
+        raise Throttled(wait=wait, detail="Too many MFA attempts for this account. Try again later.")
+    details = {
+        "invalid_session": "Invalid or expired MFA session. Please login again.",
+        "invalid_mfa_code": "Invalid or already used authenticator code. Wait for a new code.",
+        "already_enabled": "MFA is already enabled.",
+        "enrollment_expired": "MFA setup has expired. Generate a new QR code.",
+    }
+    return Response({"error": error, "detail": details[error]}, status=401 if error == "invalid_session" else 400)
 
-            totp = pyotp.TOTP(user.mfa_secret)
-            # valid_window=1 allows current time, +30s, and -30s (total 90s window) to handle clock drift
-            if totp.verify(mfa_code, valid_window=1):
-                # Mark token as used in cache for 90 seconds (covering the valid window)
-                cache.set(cache_key, True, timeout=90)
-                
-                # MFA verified -> ISSUE REAL TOKENS
-                refresh = MyTokenObtainPairSerializer.get_token(user)
-                mfa_verified.send(
-                    sender=self.__class__, user=user, metadata={"mfa_token": mfa_code}
-                )
-                return Response(
-                    {
-                        "refresh": str(refresh),
-                        "access": str(refresh.access_token),
-                    },
-                    status=status.HTTP_200_OK,
-                )
-            else:
-                return Response(
-                    {"error": "Invalid MFA code"},
-                    status=status.HTTP_400_BAD_REQUEST,
-                )
 
-        except Exception as e:
-            # Catch token errors (expired, invalid signature)
-            print(f"MFA Error: {e}")
-            return Response(
-                {"error": "Invalid or expired session. Please login again."},
-                status=status.HTTP_401_UNAUTHORIZED,
-            )
+class MFAConfirmView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = []
+
+    @swagger_auto_schema(
+        operation_description="Confirm the authenticated user's pending MFA setup. Does not issue login tokens.",
+        request_body=openapi.Schema(type=openapi.TYPE_OBJECT, required=["mfa_token"], properties={
+            "mfa_token": openapi.Schema(type=openapi.TYPE_STRING, description="Current six-digit authenticator code"),
+        }),
+        responses={200: "MFA enabled", 400: "Invalid code or expired setup", 401: "Authentication required", 429: "Account attempt limit; respect Retry-After"},
+    )
+    def post(self, request):
+        if not isinstance(request.data, dict):
+            return Response({"error": "invalid", "detail": "Expected a JSON object."}, status=400)
+        error, wait = verify_factor(request.user.pk, request.data.get("mfa_token"), enrollment=True)
+        if error:
+            return mfa_failure(error, wait)
+        return Response({"mfa_enabled": True, "message": "MFA has been enabled."})
+
 
 class VerifyEmailView(APIView):
     permission_classes = [AllowAny]
