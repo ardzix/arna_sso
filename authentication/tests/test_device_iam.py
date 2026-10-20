@@ -65,6 +65,64 @@ class DeviceIAMTests(APITestCase):
         self.member.refresh_from_db()
         self.assertEqual(self.member.active_tenant_id, self.tenant)
 
+    def test_human_org_storage_without_arnasite_tenant_preserves_grants_and_expiry(self):
+        self.lookup.return_value.json.return_value = {'results': []}
+        raw = str(MyTokenObtainPairSerializer.get_token(self.owner).access_token)
+        response = self.resource(raw)
+        self.assertEqual(response.status_code, 200, response.data)
+        claims = jwt.decode(response.data['access_token'], settings.SIMPLE_JWT['VERIFYING_KEY'],
+                            algorithms=['RS256'], audience='storage', issuer=settings.DEVICE_TOKEN_ISSUER)
+        self.assertEqual(claims['org_id'], str(self.org.pk))
+        self.assertEqual(claims['user_id'], str(self.owner.pk))
+        self.assertIsNone(claims['tenant_id'])
+        self.assertEqual(claims['principal_type'], 'user')
+        self.assertIn('storage.files.create', claims['permissions'])
+        self.assertIn('storage.files.share', claims['permissions'])
+        subject = jwt.decode(raw, settings.SIMPLE_JWT['VERIFYING_KEY'], algorithms=['RS256'], options={'verify_aud': False})
+        self.assertLessEqual(claims['exp'], subject['exp'])
+        staff_token = str(MyTokenObtainPairSerializer.get_token(self.staff).access_token)
+        self.assertEqual(self.resource(staff_token).status_code, 403)
+        UserRole.objects.create(organization_member=self.staff_member, role=self.role)
+        response = self.resource(staff_token)
+        self.assertEqual(response.status_code, 200, response.data)
+        claims = jwt.decode(response.data['access_token'], settings.SIMPLE_JWT['VERIFYING_KEY'], algorithms=['RS256'], audience='storage')
+        self.assertEqual(claims['permissions'], ['storage.files.create', 'storage.files.read'])
+        self.assertIsNone(claims['tenant_id'])
+        self.assertFalse(claims['is_owner'])
+
+    def test_human_org_storage_never_downgrades_ambiguous_revoked_or_unavailable_tenant(self):
+        raw = str(MyTokenObtainPairSerializer.get_token(self.owner).access_token)
+        rows = self.lookup.return_value.json.return_value['results']
+        rows.append({**rows[0], 'tenant_id': str(uuid.uuid4())})
+        self.assertEqual(self.resource(raw).status_code, 400)
+        self.member.active_tenant_id = self.tenant
+        self.member.save(update_fields=['active_tenant_id'])
+        self.lookup.return_value.json.return_value = {'results': []}
+        self.assertEqual(self.resource(raw).status_code, 403)
+        self.member.active_tenant_id = None
+        self.member.save(update_fields=['active_tenant_id'])
+        self.lookup.return_value.status_code = 503
+        self.assertEqual(self.resource(raw).status_code, 503)
+
+    def test_human_resource_rejects_stale_signed_org_and_workspace(self):
+        raw = str(MyTokenObtainPairSerializer.get_token(self.owner).access_token)
+        claims = jwt.decode(raw, settings.SIMPLE_JWT['VERIFYING_KEY'], algorithms=['RS256'], options={'verify_aud': False})
+        claims['org_id'] = str(uuid.uuid4())
+        self.assertEqual(self.resource(jwt.encode(claims, settings.SIMPLE_JWT['SIGNING_KEY'], algorithm='RS256')).status_code, 403)
+        claims['org_id'] = str(self.org.pk)
+        claims['tenant_id'] = str(uuid.uuid4())
+        self.assertEqual(self.resource(jwt.encode(claims, settings.SIMPLE_JWT['SIGNING_KEY'], algorithm='RS256')).status_code, 403)
+
+    def test_device_pairing_still_requires_tenant_for_org_without_workspaces(self):
+        self.lookup.return_value.json.return_value = {'results': []}
+        self.client.force_authenticate(user=None)
+        grant = self.client.post(BASE + 'authorize/', {'client_id': 'no-workspace', 'device_name': 'Kiosk',
+            'audience': 'photobooth-api', 'scopes': ['photobooth.session']}, format='json')
+        self.client.force_authenticate(user=self.owner)
+        response = self.client.post(BASE + 'verification/', {'user_code': grant.data['user_code'], 'action': 'approve'}, format='json')
+        self.assertEqual(response.status_code, 400, response.data)
+        self.assertFalse(DeviceRegistration.objects.exists())
+
     def test_shared_role_catalogue_and_resource_permissions_for_human_and_device(self):
         pair = self.pair()
         self.assertEqual(self.resource(pair['access_token']).status_code, 403)
