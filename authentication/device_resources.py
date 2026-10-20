@@ -154,6 +154,30 @@ class ResourceSubjectAuthentication(BaseAuthentication):
         raise AuthenticationFailed('A human or device subject token is required.')
 
 
+def _human_storage_context(request):
+    """Keep legacy organization-owned human files usable without inventing a tenant.
+
+    A selected workspace is always verified; lookup failures and ambiguous
+    workspace selection must never silently downgrade to organization scope.
+    Device pairing and device resource tokens retain their mandatory tenant.
+    """
+    member = active_organization(request.user, manage=False)
+    subject_org = request.auth.get('org_id') if request.auth is not None else None
+    if subject_org and str(subject_org) != str(member.organization_id):
+        raise PermissionDenied('Organization context changed. Obtain a new login token before accessing storage.')
+    if request.auth is not None and 'tenant_id' in request.auth:
+        subject_tenant = request.auth.get('tenant_id')
+        current_tenant = str(member.active_tenant_id) if member.active_tenant_id else None
+        if subject_tenant != current_tenant:
+            raise PermissionDenied('Workspace context changed. Obtain a new login token before accessing storage.')
+    if member.active_tenant_id is not None or tenant_workspaces(request.user, member.organization):
+        return active_context(request.user, member.organization_id, manage=False)
+    current = active_organization(request.user, member.organization_id, manage=False)
+    if current.active_tenant_id is not None:
+        raise PermissionDenied('Workspace context changed. Retry in the active workspace.')
+    return current
+
+
 class ResourceTokenView(DeviceAPIView):
     authentication_classes = [ResourceSubjectAuthentication]
     permission_classes = [IsAuthenticated]
@@ -177,7 +201,7 @@ class ResourceTokenView(DeviceAPIView):
             token = _device_access_token(device, audience=audience, subject_exp=subject_exp)
             kind = 'DPoP' if device.public_key_thumbprint else 'Bearer'
         else:
-            context = active_context(request.user, manage=False)
+            context = _human_storage_context(request)
             roles, permissions = effective_access(request.user, context.organization)
             owner = context.organization.owner_id == request.user.pk
             permissions = sorted(resource_permissions if owner else set(permissions) & resource_permissions)
@@ -192,7 +216,7 @@ class ResourceTokenView(DeviceAPIView):
             access['principal_type'] = 'user'
             access['org_id'] = str(context.organization_id)
             access['organization_id'] = str(context.organization_id)
-            access['tenant_id'] = str(context.active_tenant_id)
+            access['tenant_id'] = str(context.active_tenant_id) if context.active_tenant_id else None
             access['roles'], access['permissions'], access['scopes'] = roles, permissions, permissions
             access['is_owner'] = owner
             token, kind = str(access), 'Bearer'
