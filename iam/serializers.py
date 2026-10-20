@@ -1,5 +1,6 @@
 from rest_framework import serializers
 from django.db.models import Q
+from django.db import IntegrityError, transaction
 from organization.models import OrganizationMember
 from .models import Role, Permission, UserRole, UserPermission
 
@@ -11,6 +12,41 @@ class PermissionSerializer(serializers.ModelSerializer):
         model = Permission
         fields = ['id', 'name', 'description', 'organization', 'organization_name']
         read_only_fields = ['organization']
+
+    duplicate_name_message = 'This permission already exists in this organization. Select the existing permission instead of creating it again.'
+
+    def _duplicates(self, organization, name):
+        query = Permission.objects.filter(organization=organization, name=name)
+        if self.instance is not None:
+            query = query.exclude(pk=self.instance.pk)
+        return query
+
+    def validate_name(self, value):
+        organization = self.instance.organization if self.instance is not None else None
+        request = self.context.get('request')
+        if organization is None and request and request.user.is_authenticated:
+            membership = OrganizationMember.objects.filter(user=request.user, is_session_active=True).first()
+            organization = membership.organization if membership else None
+        if organization is not None and self._duplicates(organization, value).exists():
+            raise serializers.ValidationError(self.duplicate_name_message)
+        return value
+
+    def _save_unique(self, operation, organization, name):
+        try:
+            # The savepoint makes a concurrent duplicate a normal validation
+            # error without leaving the caller's transaction unusable.
+            with transaction.atomic():
+                return operation()
+        except IntegrityError:
+            if self._duplicates(organization, name).exists():
+                raise serializers.ValidationError({'name': [self.duplicate_name_message]}) from None
+            raise
+
+    def update(self, instance, validated_data):
+        return self._save_unique(
+            lambda: serializers.ModelSerializer.update(self, instance, validated_data),
+            instance.organization, validated_data.get('name', instance.name),
+        )
     
     def to_internal_value(self, data):
         # Remove organization from data if present - it will be auto-set from active session
@@ -42,7 +78,10 @@ class PermissionSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError({
                 'organization': 'Authentication required.'
             })
-        return super().create(validated_data)
+        return self._save_unique(
+            lambda: serializers.ModelSerializer.create(self, validated_data),
+            validated_data['organization'], validated_data['name'],
+        )
 
 class RoleSerializer(serializers.ModelSerializer):
     # Tampilkan detail permission, bukan cuma ID-nya
