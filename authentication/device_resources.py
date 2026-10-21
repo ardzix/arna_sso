@@ -213,6 +213,7 @@ class ResourceTokenView(DeviceAPIView):
             access['iss'] = settings.DEVICE_TOKEN_ISSUER
             access['aud'] = audience
             access['principal_type'] = 'user'
+            access['email'] = request.user.email
             access['is_staff'] = bool(request.user.is_staff)
             access['is_superuser'] = bool(request.user.is_superuser)
             access['org_id'] = str(context.organization_id)

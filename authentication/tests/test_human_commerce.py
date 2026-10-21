@@ -27,6 +27,7 @@ class HumanCommerceTests(APITestCase):
         self.assertEqual(claims['tenant_id'], str(self.tenant))
         self.assertEqual(claims['org_id'], str(self.org.pk))
         self.assertEqual(claims['principal_type'], 'user')
+        self.assertEqual(claims['email'], self.owner.email)
         self.assertIn('commerce.catalog.write', claims['permissions'])
         self.assertIn('commerce.catalog.delete', claims['permissions'])
         self.assertNotIn('storage.files.create', claims['permissions'])
