@@ -16,7 +16,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 
 from audit_logging.models import AuditLog
 from iam.models import Role, Permission, DeviceRole, DevicePermission
-from iam.effective import effective_access, RESOURCE_PERMISSIONS
+from iam.effective import effective_access, RESOURCE_PERMISSIONS, HUMAN_RESOURCE_PERMISSIONS
 from .models import DeviceRegistration
 from .device_context import active_organization, active_context
 from .device_security import tenant_workspaces, verify_tenant, device_token_registration, verify_dpop
@@ -154,7 +154,7 @@ class ResourceSubjectAuthentication(BaseAuthentication):
         raise AuthenticationFailed('A human or device subject token is required.')
 
 
-def _human_storage_context(request):
+def _human_storage_context(request, *, require_tenant=False):
     """Keep legacy organization-owned human files usable without inventing a tenant.
 
     A selected workspace is always verified; lookup failures and ambiguous
@@ -170,7 +170,7 @@ def _human_storage_context(request):
         current_tenant = str(member.active_tenant_id) if member.active_tenant_id else None
         if subject_tenant != current_tenant:
             raise PermissionDenied('Workspace context changed. Obtain a new login token before accessing storage.')
-    if member.active_tenant_id is not None or tenant_workspaces(request.user, member.organization):
+    if require_tenant or member.active_tenant_id is not None or tenant_workspaces(request.user, member.organization):
         return active_context(request.user, member.organization_id, manage=False)
     current = active_organization(request.user, member.organization_id, manage=False)
     if current.active_tenant_id is not None:
@@ -185,9 +185,8 @@ class ResourceTokenView(DeviceAPIView):
     @swagger_auto_schema(request_body=ResourceTokenSerializer, operation_summary='Issue a resource token using current SSO IAM grants')
     def post(self, request):
         audience = _validated(ResourceTokenSerializer, request.data)['audience']
-        if audience == 'arna-commerce' and not isinstance(request.user, ResourceDevicePrincipal):
-            raise PermissionDenied('This Commerce exchange requires a paired photobooth device token.')
-        resource_permissions = RESOURCE_PERMISSIONS[audience]
+        resource_permissions = (RESOURCE_PERMISSIONS if isinstance(request.user, ResourceDevicePrincipal)
+                                else HUMAN_RESOURCE_PERMISSIONS)[audience]
         subject_exp = request.auth.get('exp') if request.auth is not None else None
         expires_in = min(settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60,
                          max(0, subject_exp - int(time.time()))) if subject_exp is not None else settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60
@@ -201,7 +200,7 @@ class ResourceTokenView(DeviceAPIView):
             token = _device_access_token(device, audience=audience, subject_exp=subject_exp)
             kind = 'DPoP' if device.public_key_thumbprint else 'Bearer'
         else:
-            context = _human_storage_context(request)
+            context = _human_storage_context(request, require_tenant=audience == 'arna-commerce')
             roles, permissions = effective_access(request.user, context.organization)
             owner = context.organization.owner_id == request.user.pk
             permissions = sorted(resource_permissions if owner else set(permissions) & resource_permissions)
@@ -214,6 +213,8 @@ class ResourceTokenView(DeviceAPIView):
             access['iss'] = settings.DEVICE_TOKEN_ISSUER
             access['aud'] = audience
             access['principal_type'] = 'user'
+            access['is_staff'] = bool(request.user.is_staff)
+            access['is_superuser'] = bool(request.user.is_superuser)
             access['org_id'] = str(context.organization_id)
             access['organization_id'] = str(context.organization_id)
             access['tenant_id'] = str(context.active_tenant_id) if context.active_tenant_id else None

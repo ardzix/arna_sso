@@ -64,9 +64,9 @@ class DeviceCommerceTests(APITestCase):
     def test_catalog_is_seeded_but_no_automatic_device_grants_or_commerce_pairing_scopes(self):
         self.client.force_authenticate(self.owner)
         response = self.client.post('/api/v1/devices/resource-token/', {'audience': 'arna-commerce'}, format='json')
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(response.status_code, 200, response.data)
         pair = self.pair()
-        self.assertEqual(Permission.objects.filter(organization=self.org, name__startswith='commerce.').count(), 3)
+        self.assertEqual(Permission.objects.filter(organization=self.org, name__startswith='commerce.').count(), 6)
         self.assertFalse(DeviceRole.objects.exists())
         self.client.force_authenticate(user=None)
         response = self.client.post('/api/v1/devices/authorize/', {'client_id': 'invalid-commerce-pair',

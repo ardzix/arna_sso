@@ -9,6 +9,13 @@ COMMERCE_DEVICE_PERMISSIONS = {
     'commerce.orders.read', 'commerce.orders.write', 'commerce.payments.create',
 }
 RESOURCE_PERMISSIONS = {'storage': STORAGE_PERMISSIONS, 'arna-commerce': COMMERCE_DEVICE_PERMISSIONS}
+COMMERCE_CATALOG_PERMISSIONS = {
+    'commerce.catalog.read', 'commerce.catalog.write', 'commerce.catalog.delete',
+}
+HUMAN_RESOURCE_PERMISSIONS = {
+    'storage': STORAGE_PERMISSIONS,
+    'arna-commerce': COMMERCE_DEVICE_PERMISSIONS | COMMERCE_CATALOG_PERMISSIONS,
+}
 
 
 def effective_access(subject, organization, *, device=False):
