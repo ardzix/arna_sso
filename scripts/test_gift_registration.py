@@ -34,6 +34,7 @@ with tempfile.TemporaryDirectory(prefix="ols-gift-sso-test-") as folder:
     call_command("test", "authentication.tests.test_gift_registration", "authentication.tests.test_mfa_security", "authentication.tests.test_website_service",
                  "authentication.tests.test_website_proof", "authentication.tests.test_wa_otp_throttling",
                  "authentication.tests.test_service_token_throttling",
+                 "authentication.tests.test_sso_login_page",
                  "authentication.tests.test_device_authorization", "authentication.tests.test_device_throttles",
                  "authentication.tests.test_device_iam",
                  "authentication.tests.test_device_commerce", "authentication.tests.test_human_commerce",

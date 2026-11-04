@@ -8,6 +8,8 @@ from rest_framework_simplejwt.tokens import AccessToken
 from rest_framework_simplejwt.views import TokenObtainPairView, TokenRefreshView
 from rest_framework_simplejwt.tokens import UntypedToken
 from django.contrib.auth import authenticate
+from django.contrib.auth.hashers import make_password
+from google.auth.exceptions import GoogleAuthError, TransportError
 from django.utils.timezone import now
 from authentication.models import ServiceAccount, User
 from authentication.serializers import UserSerializer, MyTokenObtainPairSerializer, PreAuthTokenSerializer, MyTokenRefreshSerializer
@@ -803,21 +805,37 @@ class GoogleLoginView(APIView):
     def post(self, request, *args, **kwargs):
         token = request.data.get("token")
 
-        if not token:
+        if not isinstance(token, str) or not token or len(token) > 8192:
             return Response({"error": "Missing Google token"}, status=status.HTTP_400_BAD_REQUEST)
 
+        audience = settings.SSO_GOOGLE_CLIENT_ID
+        if not audience:
+            return Response({"error": "Google sign-in is unavailable"}, status=503)
         try:
-            # Verify token
-            idinfo = id_token.verify_oauth2_token(token, requests.Request())
-            email = idinfo.get("email")
+            transport = requests.Request()
+            idinfo = id_token.verify_oauth2_token(
+                token, lambda *args, **kwargs: transport(*args, **dict(kwargs, timeout=8)), audience=audience,
+            )
+            email_claim = idinfo.get("email")
+            email = email_claim.strip().lower() if isinstance(email_claim, str) else ""
             picture = idinfo.get("picture")
             name = idinfo.get("name")
 
-            if not email:
-                return Response({"error": "Google token invalid, email missing"}, status=status.HTTP_400_BAD_REQUEST)
+            # Existing SSO identities are matched by email, so require a Google-
+            # hosted mailbox rather than trusting third-party email aliases.
+            domain = email.rpartition("@")[2]
+            if ("@" not in email or not domain or not idinfo.get("sub") or idinfo.get("email_verified") is not True
+                    or (domain != "gmail.com" and idinfo.get("hd") != domain)):
+                return Response({"error": "Use a verified Gmail or Google Workspace account, or another sign-in method."}, status=403)
 
-            # Get or create user
-            user, _ = User.objects.get_or_create(email=email)
+            matching = list(User.objects.filter(email__iexact=email)[:2])
+            if len(matching) > 1:
+                return Response({"error": "Multiple accounts match this email. Use another sign-in method."}, status=409)
+            user = matching[0] if matching else User.objects.get_or_create(
+                email=email, defaults={"is_active": True, "password": make_password(None)},
+            )[0]
+            if not user.is_active:
+                return Response({"error": "Account is not active."}, status=403)
 
             # Update or create UserProfile in one step
             profile, _ = UserProfile.objects.update_or_create(
@@ -859,7 +877,9 @@ class GoogleLoginView(APIView):
                 status=status.HTTP_200_OK,
             )
 
-        except ValueError:
+        except TransportError:
+            return Response({"error": "Google sign-in is temporarily unavailable"}, status=503)
+        except (ValueError, GoogleAuthError):
             return Response({"error": "Invalid Google token"}, status=status.HTTP_400_BAD_REQUEST)
 
 from django.shortcuts import render
