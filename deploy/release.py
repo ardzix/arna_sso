@@ -21,6 +21,8 @@ SERVICE = "sso_service"
 REPOSITORY = "ardzix/arna_sso"
 SOURCE = Path('/root/Project/arna_sso')
 BASE = Path('/root/arnatech-releases')
+DEVICE_EXEMPTION_CONFIG = 'sso-device-authorize-exemption-v1'
+DEVICE_EXEMPTION_TARGET = '/run/sso-device-authorize-exemption.json'
 
 
 def run(args, *, timeout=120, input=None, visible=False, env=None, diagnostic_path=None):
@@ -210,6 +212,12 @@ def roll(commit, folder):
         # Docker CLI matches --secret-rm against SecretName, not SecretID.
         update += ['--secret-rm', secret['SecretName']]
     update += ['--env-add', 'SSO_RUNTIME_SECRET_PATH=/run/secrets/sso_runtime']
+    # A separately provisioned, immutable operator exception can expire without
+    # rotating credentials or rebuilding/restarting SSO.
+    config_names = run(['docker', 'config', 'ls', '--format', '{{.Name}}']).splitlines()
+    if DEVICE_EXEMPTION_CONFIG in config_names and not any(
+            config['ConfigName'] == DEVICE_EXEMPTION_CONFIG for config in cs.get('Configs', [])):
+        update += ['--config-add', f'source={DEVICE_EXEMPTION_CONFIG},target={DEVICE_EXEMPTION_TARGET},mode=0400']
     for kind, target in [('runtime', 'sso_runtime'), ('private', 'sso_jwt_private'), ('public', 'sso_jwt_public')]:
         update += ['--secret-add', 'source=' + secret_names[kind] + ',target=' + target + ',mode=0400']
     update += [SERVICE]
