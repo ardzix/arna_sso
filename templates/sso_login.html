@@ -1,5 +1,6 @@
+{% load static %}
 <!DOCTYPE html>
-<html lang="en">
+<html lang="id">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -34,7 +35,7 @@
         }
 
         main {
-            width: min(100%, 420px);
+            width: min(100%, 460px);
             background: var(--panel);
             border: 1px solid var(--line);
             border-radius: 8px;
@@ -61,7 +62,7 @@
             font-weight: 700;
         }
 
-        input {
+        input, select {
             width: 100%;
             height: 42px;
             border: 1px solid var(--line);
@@ -135,218 +136,86 @@
             color: var(--ok);
         }
 
-        .hidden {
-            display: none;
+        [hidden] { display: none !important; }
+        .method-picker { display: flex; gap: 8px; margin: 8px 0 12px; }
+        .method-picker button { background: #f2f5fa; color: var(--text); }
+        .method-picker button[aria-pressed="true"] { background: #e0ecff; color: var(--primary-dark); }
+        .actions { margin-top: 12px; display: grid; gap: 8px; }
+        .actions a { color: var(--primary-dark); text-align: center; }
+        .hint { margin: 8px 0 0; font-size: 13px; }
+        .google { display: flex; justify-content: center; margin-top: 10px; min-height: 40px; }
+        button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible {
+            outline: 2px solid var(--primary-dark); outline-offset: 2px;
         }
+        @media (max-width: 400px) { body { padding: 14px; } main { padding: 20px; } }
     </style>
 </head>
 <body>
     <main>
         <h1>Arna SSO</h1>
-        <p>Sign in to continue.</p>
-
-        <button id="passkeyButton" class="secondary" type="button">Continue with passkey</button>
-
-        <div class="divider">or</div>
-
-        <form id="passwordForm">
-            <label for="email">Email</label>
-            <input id="email" name="email" type="email" autocomplete="username" required>
-
-            <label for="password">Password</label>
-            <input id="password" name="password" type="password" autocomplete="current-password" required>
-
-            <section id="mfaSection" class="hidden">
-                <label for="mfaToken">MFA code</label>
-                <input id="mfaToken" name="mfa_token" type="text" inputmode="numeric" autocomplete="one-time-code">
-            </section>
-
-            <button id="passwordButton" class="primary" type="submit">Continue</button>
-        </form>
-
-        <div id="status" class="status" role="status"></div>
+        {% if login_error %}
+            <p class="error" role="alert">{{ login_error }}</p>
+            <a href="{% url 'sso_login_page' %}">Masuk langsung ke Arna SSO</a>
+        {% elif browser_user %}
+            <p>Anda masuk sebagai <strong>{{ browser_user.email }}</strong>. Aplikasi yang terhubung dapat menggunakan sesi ini.</p>
+            <div class="actions"><a href="https://account.arnatech.id/">Buka dashboard akun</a></div>
+            <form method="post" action="{% url 'sso_browser_logout' %}">
+                {% csrf_token %}
+                <button class="secondary" type="submit">Keluar dari Arna SSO</button>
+            </form>
+        {% else %}
+            <p>Pilih metode untuk masuk ke akun Anda.</p>
+            <noscript><p class="error">Aktifkan JavaScript untuk menggunakan formulir ini.</p></noscript>
+            <div id="methods">
+                <button id="passkeyButton" class="secondary" type="button">Masuk dengan passkey</button>
+                {% if login_config.googleClientId %}
+                    <div id="googleButton" class="google" aria-label="Masuk dengan Google"></div>
+                {% endif %}
+                <div class="divider">atau</div>
+                <div class="method-picker" role="group" aria-label="Metode masuk">
+                    <button id="emailMethod" type="button" aria-pressed="true" aria-controls="passwordForm">Email &amp; password</button>
+                    <button id="waMethod" type="button" aria-pressed="false" aria-controls="waForm">WhatsApp</button>
+                </div>
+                <form id="passwordForm" method="post">
+                    {% csrf_token %}
+                    <label for="email">Email</label>
+                    <input id="email" type="email" autocomplete="username" required>
+                    <label for="password">Password</label>
+                    <input id="password" type="password" autocomplete="current-password" required>
+                    <button class="primary" type="submit">Masuk</button>
+                </form>
+                <form id="waForm" method="post" hidden>
+                    <label for="phone">Nomor WhatsApp</label>
+                    <input id="phone" type="tel" autocomplete="tel" placeholder="08…" required>
+                    <label for="waMode">Cara menerima kode</label>
+                    <select id="waMode">
+                        <option value="push">Kirim kode ke WhatsApp saya</option>
+                        {% if login_config.reverseWhatsApp %}
+                            <option value="reverse">Saya minta kode lewat chat WhatsApp</option>
+                        {% endif %}
+                    </select>
+                    <div id="waCode" hidden>
+                        <div id="waReverse" class="actions" hidden>
+                            <a id="waChat" target="_blank" rel="noopener noreferrer">Buka WhatsApp dan kirim pesan OTP</a>
+                            <p class="hint">Setelah mendapat balasan, masukkan kode di bawah.</p>
+                        </div>
+                        <label for="otp">Kode WhatsApp</label>
+                        <input id="otp" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6">
+                        <button id="changePhone" class="secondary" type="button">Ganti nomor atau minta kode lagi</button>
+                    </div>
+                    <button id="waSubmit" class="primary" type="submit">Minta kode</button>
+                </form>
+            </div>
+            <form id="mfaForm" method="post" hidden>
+                <label for="mfaToken">Kode authenticator</label>
+                <input id="mfaToken" type="text" inputmode="numeric" autocomplete="one-time-code" pattern="[0-9]{6}" maxlength="6" required>
+                <button class="primary" type="submit">Verifikasi MFA</button>
+                <button id="cancelMfa" class="secondary" type="button">Kembali ke pilihan login</button>
+            </form>
+            <div id="status" class="status" role="status" aria-live="polite"></div>
+            {{ login_config|json_script:"sso-login-config" }}
+            <script src="{% static 'authentication/sso_login.js' %}" defer></script>
+        {% endif %}
     </main>
-
-    <script>
-        const params = new URLSearchParams(window.location.search);
-        const requiredParams = [
-            "client_id",
-            "redirect_uri",
-            "state",
-            "code_challenge",
-            "code_challenge_method",
-        ];
-        const statusBox = document.getElementById("status");
-        const passkeyButton = document.getElementById("passkeyButton");
-        const passwordButton = document.getElementById("passwordButton");
-        const passwordForm = document.getElementById("passwordForm");
-        const mfaSection = document.getElementById("mfaSection");
-        let preAuthToken = null;
-
-        function setStatus(message, type) {
-            statusBox.textContent = message || "";
-            statusBox.className = "status" + (type ? " " + type : "");
-        }
-
-        function setBusy(isBusy) {
-            passkeyButton.disabled = isBusy;
-            passwordButton.disabled = isBusy;
-        }
-
-        function base64UrlToBuffer(value) {
-            const base64 = value.replace(/-/g, "+").replace(/_/g, "/");
-            const padded = base64.padEnd(base64.length + (4 - base64.length % 4) % 4, "=");
-            const binary = atob(padded);
-            const bytes = new Uint8Array(binary.length);
-            for (let i = 0; i < binary.length; i += 1) {
-                bytes[i] = binary.charCodeAt(i);
-            }
-            return bytes.buffer;
-        }
-
-        function bufferToBase64Url(buffer) {
-            const bytes = new Uint8Array(buffer);
-            let binary = "";
-            for (let i = 0; i < bytes.byteLength; i += 1) {
-                binary += String.fromCharCode(bytes[i]);
-            }
-            return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/g, "");
-        }
-
-        function credentialToJSON(credential) {
-            return {
-                id: credential.id,
-                rawId: bufferToBase64Url(credential.rawId),
-                type: credential.type,
-                response: {
-                    authenticatorData: bufferToBase64Url(credential.response.authenticatorData),
-                    clientDataJSON: bufferToBase64Url(credential.response.clientDataJSON),
-                    signature: bufferToBase64Url(credential.response.signature),
-                    userHandle: credential.response.userHandle
-                        ? bufferToBase64Url(credential.response.userHandle)
-                        : null,
-                },
-            };
-        }
-
-        function normalizeRequestOptions(options) {
-            const publicKey = options.publicKey || options;
-            publicKey.challenge = base64UrlToBuffer(publicKey.challenge);
-            publicKey.allowCredentials = (publicKey.allowCredentials || []).map((item) => ({
-                ...item,
-                id: base64UrlToBuffer(item.id),
-            }));
-            return publicKey;
-        }
-
-        function validateParams() {
-            const missing = requiredParams.filter((key) => !params.get(key));
-            if (missing.length) {
-                setStatus("Missing SSO parameter: " + missing.join(", "), "error");
-                setBusy(true);
-                return false;
-            }
-            return true;
-        }
-
-        async function postJSON(url, body, token) {
-            const headers = {"Content-Type": "application/json"};
-            if (token) {
-                headers.Authorization = "Bearer " + token;
-            }
-            const response = await fetch(url, {
-                method: "POST",
-                headers,
-                credentials: "include",
-                body: JSON.stringify(body),
-            });
-            const data = await response.json().catch(() => ({}));
-            if (!response.ok) {
-                throw new Error(data.error || data.detail || "Request failed");
-            }
-            return data;
-        }
-
-        async function authorizeAndRedirect(accessToken) {
-            setStatus("Completing SSO redirect...", "");
-            const data = await postJSON("/api/auth/sso/authorize-code/", {
-                client_id: params.get("client_id"),
-                redirect_uri: params.get("redirect_uri"),
-                code_challenge: params.get("code_challenge"),
-                code_challenge_method: params.get("code_challenge_method"),
-                state: params.get("state"),
-            }, accessToken);
-            window.location.assign(data.redirect_url);
-        }
-
-        async function loginWithPasskey() {
-            if (!validateParams()) {
-                return;
-            }
-            setBusy(true);
-            try {
-                setStatus("Waiting for passkey...", "");
-                const beginResponse = await fetch("/api/auth/passkeys/login/begin/", {
-                    credentials: "include",
-                });
-                const beginData = await beginResponse.json();
-                if (!beginResponse.ok) {
-                    throw new Error(beginData.error || "Could not start passkey login");
-                }
-                const credential = await navigator.credentials.get({
-                    publicKey: normalizeRequestOptions(beginData),
-                });
-                const loginData = await postJSON(
-                    "/api/auth/passkeys/login/complete/",
-                    credentialToJSON(credential)
-                );
-                await authorizeAndRedirect(loginData.access);
-            } catch (error) {
-                setStatus(error.message, "error");
-                setBusy(false);
-            }
-        }
-
-        async function loginWithPassword(event) {
-            event.preventDefault();
-            if (!validateParams()) {
-                return;
-            }
-            setBusy(true);
-            try {
-                if (preAuthToken) {
-                    const mfaToken = document.getElementById("mfaToken").value;
-                    const mfaData = await postJSON("/api/auth/mfa/verify/", {
-                        token: preAuthToken,
-                        mfa_token: mfaToken,
-                    });
-                    await authorizeAndRedirect(mfaData.access);
-                    return;
-                }
-
-                const loginData = await postJSON("/api/auth/login/", {
-                    email: document.getElementById("email").value,
-                    password: document.getElementById("password").value,
-                });
-                if (loginData.mfa_required) {
-                    preAuthToken = loginData.token;
-                    mfaSection.classList.remove("hidden");
-                    document.getElementById("mfaToken").required = true;
-                    passwordButton.textContent = "Verify MFA";
-                    setStatus("Enter your MFA code.", "");
-                    setBusy(false);
-                    return;
-                }
-                await authorizeAndRedirect(loginData.access);
-            } catch (error) {
-                setStatus(error.message, "error");
-                setBusy(false);
-            }
-        }
-
-        passkeyButton.addEventListener("click", loginWithPasskey);
-        passwordForm.addEventListener("submit", loginWithPassword);
-        validateParams();
-    </script>
 </body>
 </html>

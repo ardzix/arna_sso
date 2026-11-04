@@ -3,10 +3,18 @@ import hashlib
 from urllib.parse import urlencode, urlsplit
 
 from django.conf import settings
+from django.contrib.sessions.backends.db import SessionStore
+from django.http import HttpResponseRedirect
+from django.middleware.csrf import rotate_token
+from django.utils.decorators import method_decorator
+from django.views.decorators.cache import never_cache
+from django.views.decorators.csrf import csrf_protect
+from django.views.decorators.http import require_GET
 from django.shortcuts import render
 from django.utils import timezone
-from django.utils.crypto import constant_time_compare
+from django.utils.crypto import constant_time_compare, salted_hmac
 from rest_framework import serializers, status
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -14,16 +22,12 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from drf_yasg import openapi
 from drf_yasg.utils import swagger_auto_schema
 
-from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode
+from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode, User
 from authentication.serializers import MyTokenObtainPairSerializer
 from authentication.website_proof import WEBSITE_CLIENT_ID, website_customer_proof
 from authentication.crm_proof import CRM_CLIENT_ID, crm_dashboard_proof
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
-
-
-def sso_login_page(request):
-    return render(request, "sso_login.html")
 
 
 class SSOAuthorizeSerializer(serializers.Serializer):
@@ -76,6 +80,135 @@ def _challenge_from_verifier(verifier, method):
     return base64.urlsafe_b64encode(digest).rstrip(b"=").decode("ascii")
 
 
+SSO_BROWSER_COOKIE = "__Host-arna_sso"
+SSO_BROWSER_SECONDS = 8 * 3600
+PKCE_FIELDS = ("client_id", "redirect_uri", "state", "code_challenge", "code_challenge_method")
+
+
+def _browser_params(values):
+    if not any(key in values for key in PKCE_FIELDS):
+        return None
+    if any(not isinstance(values.get(key), str) or not values[key] for key in PKCE_FIELDS):
+        raise serializers.ValidationError("Tautan masuk aplikasi tidak lengkap. Mulai kembali dari aplikasi.")
+    serializer = SSOAuthorizeSerializer(data=values)
+    if not serializer.is_valid():
+        raise serializers.ValidationError("Tautan masuk aplikasi tidak valid. Mulai kembali dari aplikasi.")
+    data = serializer.validated_data
+    callback = urlsplit(data["redirect_uri"])
+    local = settings.DEBUG and callback.scheme == "http" and callback.hostname in {"localhost", "127.0.0.1"}
+    if (callback.scheme != "https" and not local) or callback.username or callback.password or callback.fragment:
+        raise serializers.ValidationError("Alamat kembali aplikasi tidak valid.")
+    if not _is_redirect_allowed(data["client_id"], data["redirect_uri"]):
+        raise serializers.ValidationError("Alamat kembali aplikasi belum terdaftar di Arna SSO.")
+    return data
+
+
+def _browser_store(request):
+    key = request.COOKIES.get(SSO_BROWSER_COOKIE, "")
+    if len(key) == 32 and key.isascii() and key.isalnum():
+        return SessionStore(session_key=key)
+    return SessionStore()
+
+
+def _browser_fingerprint(user):
+    return salted_hmac("arna.sso.browser.v1", user.get_session_auth_hash() + (user.mfa_secret or "")).hexdigest()
+
+
+def _browser_user(request):
+    store = _browser_store(request)
+    if not store.session_key:
+        return None
+    user_id = store.get("browser_user")
+    if not user_id:
+        return None
+    user = User.objects.filter(pk=user_id, is_active=True).first()
+    if user and constant_time_compare(store.get("auth_fingerprint", ""), _browser_fingerprint(user)):
+        return user
+    return None
+
+
+@require_GET
+@never_cache
+def sso_login_page(request):
+    error = None
+    try:
+        if any(len(request.GET.getlist(key)) > 1 for key in PKCE_FIELDS):
+            raise serializers.ValidationError("Tautan masuk aplikasi tidak valid.")
+        params = _browser_params(request.GET)
+    except serializers.ValidationError as exc:
+        params, error = None, str(exc.detail[0])
+    user = _browser_user(request) if not error else None
+    if user and params:
+        result = _issue_authorization_code(user, params)
+        if result.status_code == 201:
+            return HttpResponseRedirect(result.data["redirect_url"])
+        error = result.data["error"]
+    response = render(request, "sso_login.html", {
+        "browser_user": user, "login_error": error,
+        "login_config": {"pkce": params, "googleClientId": settings.SSO_GOOGLE_CLIENT_ID,
+                         "reverseWhatsApp": settings.SSO_REVERSE_WHATSAPP_NUMBER},
+    }, status=400 if error else 200)
+    response["Cross-Origin-Opener-Policy"] = "same-origin-allow-popups"
+    response["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    return response
+
+
+@method_decorator(csrf_protect, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
+class SSOBrowserSessionView(APIView):
+    """Turn a fully authenticated human login into a host-only browser session."""
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        token = request.auth
+        if (token.get("token_type") != "access" or token.get("type") == "pre_auth"
+                or token.get("principal_type", "user") != "user"
+                or token.get("aud") != settings.SIMPLE_JWT.get("AUDIENCE")
+                or token.get("device_id") or token.get("tenant_ids")):
+            raise PermissionDenied("A human SSO login is required.")
+        if not isinstance(request.data, dict):
+            raise serializers.ValidationError("Expected a JSON object.")
+        params = _browser_params(request.data)
+        if params:
+            result = _issue_authorization_code(request.user, params)
+            if result.status_code != 201:
+                return result
+            destination = result.data["redirect_url"]
+        else:
+            destination = "/login/"
+
+        store = _browser_store(request)
+        if store.session_key:
+            store.delete(store.session_key)
+        store = SessionStore()
+        store["browser_user"] = str(request.user.pk)
+        store["auth_fingerprint"] = _browser_fingerprint(request.user)
+        store.set_expiry(SSO_BROWSER_SECONDS)
+        store.create()
+        rotate_token(request)
+        response = Response({"redirect_url": destination})
+        response.set_cookie(SSO_BROWSER_COOKIE, store.session_key, max_age=SSO_BROWSER_SECONDS,
+                            secure=True, httponly=True, samesite="Lax", path="/")
+        return response
+
+
+@method_decorator(csrf_protect, name="dispatch")
+@method_decorator(never_cache, name="dispatch")
+class SSOBrowserLogoutView(APIView):
+    authentication_classes = []
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        store = _browser_store(request)
+        if store.session_key:
+            store.delete(store.session_key)
+        rotate_token(request)
+        response = HttpResponseRedirect("/login/")
+        response.delete_cookie(SSO_BROWSER_COOKIE, path="/", samesite="Lax")
+        return response
+
+
 class SSOAuthorizeCodeView(APIView):
     """
     Create a short-lived one-time code after the user has authenticated on SSO.
@@ -110,53 +243,56 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        if not request.user.is_active:
-            return Response(
-                {"error": "Account is not active. Please verify your email/phone first."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        return _issue_authorization_code(request.user, data)
 
-        redirect_uri = data["redirect_uri"]
-        if data["client_id"] == CRM_CLIENT_ID and data["code_challenge_method"] != "S256":
-            return Response({"error": "CRM requires S256 PKCE"}, status=400)
-        if data["client_id"] == WEBSITE_CLIENT_ID:
-            if data["code_challenge_method"] != "S256":
-                return Response({"error": "Website verification requires S256 PKCE"}, status=400)
-            if not request.user.phone_verified or not request.user.phone_number:
-                return Response({"error": "Verified phone identity is required"}, status=403)
-        if not _is_redirect_allowed(data["client_id"], redirect_uri):
-            return Response(
-                {"error": "redirect_uri is not allowed"},
-                status=status.HTTP_400_BAD_REQUEST,
-            )
 
-        expires_at = timezone.now() + timezone.timedelta(
-            seconds=settings.SSO_AUTH_CODE_LIFETIME_SECONDS
-        )
-        code, _ = SSOAuthorizationCode.create_for_user(
-            user=request.user,
-            client_id=data["client_id"],
-            redirect_uri=redirect_uri,
-            code_challenge=data["code_challenge"],
-            code_challenge_method=data["code_challenge_method"],
-            expires_at=expires_at,
-        )
-
-        query = {"code": code}
-        if data.get("state"):
-            query["state"] = data["state"]
-
-        separator = "&" if "?" in redirect_uri else "?"
-        redirect_url = f"{redirect_uri}{separator}{urlencode(query)}"
+def _issue_authorization_code(user, data):
+    if not user.is_active:
         return Response(
-            {
-                "code": code,
-                "redirect_url": redirect_url,
-                "expires_in": settings.SSO_AUTH_CODE_LIFETIME_SECONDS,
-            },
-            status=status.HTTP_201_CREATED,
+            {"error": "Account is not active. Please verify your email/phone first."},
+            status=status.HTTP_403_FORBIDDEN,
         )
 
+    redirect_uri = data["redirect_uri"]
+    if data["client_id"] == CRM_CLIENT_ID and data["code_challenge_method"] != "S256":
+        return Response({"error": "CRM requires S256 PKCE"}, status=400)
+    if data["client_id"] == WEBSITE_CLIENT_ID:
+        if data["code_challenge_method"] != "S256":
+            return Response({"error": "Website verification requires S256 PKCE"}, status=400)
+        if not user.phone_verified or not user.phone_number:
+            return Response({"error": "Verified phone identity is required"}, status=403)
+    if not _is_redirect_allowed(data["client_id"], redirect_uri):
+        return Response(
+            {"error": "redirect_uri is not allowed"},
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    expires_at = timezone.now() + timezone.timedelta(
+        seconds=settings.SSO_AUTH_CODE_LIFETIME_SECONDS
+    )
+    code, _ = SSOAuthorizationCode.create_for_user(
+        user=user,
+        client_id=data["client_id"],
+        redirect_uri=redirect_uri,
+        code_challenge=data["code_challenge"],
+        code_challenge_method=data["code_challenge_method"],
+        expires_at=expires_at,
+    )
+
+    query = {"code": code}
+    if data.get("state"):
+        query["state"] = data["state"]
+
+    separator = "&" if "?" in redirect_uri else "?"
+    redirect_url = f"{redirect_uri}{separator}{urlencode(query)}"
+    return Response(
+        {
+            "code": code,
+            "redirect_url": redirect_url,
+            "expires_in": settings.SSO_AUTH_CODE_LIFETIME_SECONDS,
+        },
+        status=status.HTTP_201_CREATED,
+    )
 
 class SSOTokenExchangeView(APIView):
     """

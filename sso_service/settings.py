@@ -197,6 +197,7 @@ USE_TZ = True
 # https://docs.djangoproject.com/en/5.0/howto/static-files/
 STATIC_URL = "/static/"
 STATIC_ROOT = os.path.join(BASE_DIR, "static")
+STATICFILES_DIRS = [BASE_DIR / "web_assets"]
 STATICFILES_FINDERS = (
     "django.contrib.staticfiles.finders.FileSystemFinder",
     "django.contrib.staticfiles.finders.AppDirectoriesFinder",
@@ -346,6 +347,10 @@ N8N_WEBHOOK_ID = os.getenv("N8N_WEBHOOK_ID", "")
 N8N_WEBHOOK_AUTH_TOKEN = os.getenv("N8N_WEBHOOK_AUTH_TOKEN", "")
 
 SSO_ALLOWED_REDIRECT_URIS = _env_list("SSO_ALLOWED_REDIRECT_URIS", "")
+# Public identifiers shared with the existing account dashboard and WA OTP flow.
+SSO_GOOGLE_CLIENT_ID = os.getenv("SSO_GOOGLE_CLIENT_ID", "783754381988-g2vs7iggs6960i0hkqi1gqjtse94ca7l.apps.googleusercontent.com")
+SSO_REVERSE_WHATSAPP_NUMBER = os.getenv("SSO_REVERSE_WHATSAPP_NUMBER", "6282298344304")
+CSRF_TRUSTED_ORIGINS = _env_list("CSRF_TRUSTED_ORIGINS", "https://sso.arnatech.id")
 SSO_AUTH_CODE_LIFETIME_SECONDS = _env_int("SSO_AUTH_CODE_LIFETIME_SECONDS", 300)
 CRM_ARNASITE_TENANTS_URL = os.getenv("CRM_ARNASITE_TENANTS_URL", "https://site.arnatech.id/tenants/")
 DEVICE_AUTHORIZATION_LIFETIME_SECONDS = _env_int("DEVICE_AUTHORIZATION_LIFETIME_SECONDS", 600)

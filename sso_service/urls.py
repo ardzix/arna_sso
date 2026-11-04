@@ -3,7 +3,7 @@ from django.urls import path, include
 from rest_framework import permissions
 from drf_yasg.views import get_schema_view
 from authentication.views import homepage
-from authentication.sso_views import sso_login_page
+from authentication.sso_views import sso_login_page, SSOBrowserSessionView, SSOBrowserLogoutView
 from authentication.admin_mfa import patch_admin_site
 from sso_service.swagger_info import api_info
 from authentication.gift_registration import TrustedWhatsAppRegistrationView, RegistrationServiceTokenView
@@ -24,6 +24,8 @@ urlpatterns = [
     path('api/v1/registrations/whatsapp/', TrustedWhatsAppRegistrationView.as_view(), name='trusted_whatsapp_registration'),
     path('admin/', admin.site.urls),
     path('login/', sso_login_page, name='sso_login_page'),
+    path('login/session/', SSOBrowserSessionView.as_view(), name='sso_browser_session'),
+    path('login/logout/', SSOBrowserLogoutView.as_view(), name='sso_browser_logout'),
     path('api/auth/', include('authentication.urls')),
     path('api/v1/devices/', include('authentication.device_urls')),
     path('api/organizations/', include('organization.urls')),
