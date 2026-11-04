@@ -16,6 +16,7 @@ from rest_framework import status
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.exceptions import APIException, PermissionDenied, ValidationError, NotFound
 from rest_framework.response import Response
+from rest_framework.throttling import AnonRateThrottle
 from rest_framework.views import APIView
 from rest_framework_simplejwt.tokens import AccessToken
 from drf_yasg import openapi
@@ -32,6 +33,7 @@ from .device_serializers import (DeviceAuthorizeSerializer, DeviceDecisionSerial
                                  DeviceTokenSerializer, DeviceRefreshSerializer)
 from .device_security import verify_tenant, verify_dpop
 from .device_context import active_organization, active_context
+from .device_throttles import DeviceAuthorizeAnonThrottle
 from iam.effective import effective_access, RESOURCE_PERMISSIONS
 
 
@@ -214,6 +216,10 @@ class DeviceAuthorizeView(DeviceAPIView):
     permission_classes = [AllowAny]
     authentication_classes = []
     throttle_scope = "login_attempt"
+
+    def get_throttles(self):
+        return [DeviceAuthorizeAnonThrottle() if type(throttle) is AnonRateThrottle else throttle
+                for throttle in super().get_throttles()]
 
     @swagger_auto_schema(
         operation_summary="Device authorization - start",
