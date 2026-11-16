@@ -269,6 +269,8 @@ class SSOAuthorizationCode(models.Model):
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
     browser_session_key = models.CharField(max_length=40, blank=True, default="")
+    crm_context = models.JSONField(default=dict, blank=True)
+    credential_expires_at = models.BigIntegerField(null=True, blank=True)
 
     class Meta:
         ordering = ("-created_at",)
@@ -292,6 +294,8 @@ class SSOAuthorizationCode(models.Model):
         code_challenge_method,
         expires_at,
         browser_session_key="",
+        crm_context=None,
+        credential_expires_at=None,
     ):
         code = secrets.token_urlsafe(48)
         instance = cls.objects.create(
@@ -303,6 +307,8 @@ class SSOAuthorizationCode(models.Model):
             code_challenge_method=code_challenge_method,
             expires_at=expires_at,
             browser_session_key=browser_session_key,
+            crm_context=crm_context or {},
+            credential_expires_at=credential_expires_at,
         )
         return code, instance
 

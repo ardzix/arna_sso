@@ -39,6 +39,7 @@ class SSOAuthorizeSerializer(serializers.Serializer):
         default="S256",
     )
     state = serializers.CharField(required=False, allow_blank=True, max_length=500)
+    tenant_id = serializers.UUIDField(required=False)
 
     def validate_code_challenge(self, value):
         if not set(value).issubset(PKCE_ALLOWED_CHARS):
@@ -132,7 +133,7 @@ def _browser_user(request):
 def sso_login_page(request):
     error = None
     try:
-        if any(len(request.GET.getlist(key)) > 1 for key in PKCE_FIELDS):
+        if any(len(request.GET.getlist(key)) > 1 for key in (*PKCE_FIELDS, "tenant_id")):
             raise serializers.ValidationError("Tautan masuk aplikasi tidak valid.")
         params = _browser_params(request.GET)
     except serializers.ValidationError as exc:
@@ -249,10 +250,10 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        return _issue_authorization_code(request.user, data)
+        return _issue_authorization_code(request.user, data, credential_expires_at=token.get("exp"))
 
 
-def _issue_authorization_code(user, data, browser_session_key=""):
+def _issue_authorization_code(user, data, browser_session_key="", credential_expires_at=None):
     if not user.is_active:
         return Response(
             {"error": "Account is not active. Please verify your email/phone first."},
@@ -273,6 +274,21 @@ def _issue_authorization_code(user, data, browser_session_key=""):
             status=status.HTTP_400_BAD_REQUEST,
         )
 
+    crm_context = {}
+    if data["client_id"] == CRM_CLIENT_ID:
+        crm_context = crm_dashboard_proof(
+            user, requested_tenant_id=data.get("tenant_id"), context_only=True,
+        )
+        if browser_session_key:
+            from django.contrib.sessions.models import Session as BrowserSession
+            browser = BrowserSession.objects.filter(
+                session_key=browser_session_key, expire_date__gt=timezone.now(),
+            ).first()
+            if not browser:
+                raise PermissionDenied("The browser session ended.")
+            credential_expires_at = int(browser.expire_date.timestamp())
+        if not credential_expires_at or credential_expires_at <= int(timezone.now().timestamp()):
+            raise PermissionDenied("The original login credential expired.")
     expires_at = timezone.now() + timezone.timedelta(
         seconds=settings.SSO_AUTH_CODE_LIFETIME_SECONDS
     )
@@ -284,6 +300,8 @@ def _issue_authorization_code(user, data, browser_session_key=""):
         code_challenge_method=data["code_challenge_method"],
         expires_at=expires_at,
         browser_session_key=browser_session_key,
+        crm_context=crm_context,
+        credential_expires_at=credential_expires_at,
     )
 
     query = {"code": code}
@@ -392,7 +410,17 @@ The code is single-use; an invalid verifier, reused code, or changed redirect UR
         if data["client_id"] == CRM_CLIENT_ID:
             if auth_code.code_challenge_method != "S256":
                 return Response({"error": "CRM requires S256 PKCE"}, status=400)
-            proof = crm_dashboard_proof(user)
+            if not auth_code.crm_context or not auth_code.credential_expires_at:
+                raise PermissionDenied("Start a new tenant-bound CRM sign-in.")
+            if auth_code.browser_session_key:
+                from authentication.app_sessions import central_session
+                if central_session(auth_code.browser_session_key, user) is None:
+                    raise PermissionDenied("The browser session ended.")
+            proof = crm_dashboard_proof(
+                user, requested_tenant_id=auth_code.crm_context.get("tenant_id"),
+                expected_context=auth_code.crm_context,
+                credential_expires_at=auth_code.credential_expires_at,
+            )
             consumed = SSOAuthorizationCode.objects.filter(
                 pk=auth_code.pk, used_at__isnull=True, expires_at__gt=timezone.now()
             ).update(used_at=timezone.now())

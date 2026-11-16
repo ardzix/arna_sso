@@ -31,7 +31,12 @@ class CrmDashboardTests(APITestCase):
 
     def grant(self, **kwargs):
         self.client.force_authenticate(user=self.user, token=MyTokenObtainPairSerializer.access_for_user(self.user))
-        return self.client.post(reverse("sso_authorize_code"), {**self.payload, **kwargs}, format="json")
+        # Keep legacy exchange/error tests focused on the exchange boundary.
+        # Authorization now independently validates the tenant context.
+        with patch("authentication.crm_proof.requests.get") as authorize_lookup:
+            authorize_lookup.return_value = Mock(status_code=200)
+            authorize_lookup.return_value.json.return_value = self.rows()
+            return self.client.post(reverse("sso_authorize_code"), {**self.payload, **kwargs}, format="json")
 
     def exchange(self, code):
         self.client.force_authenticate(user=None)
@@ -117,8 +122,7 @@ class CrmDashboardTests(APITestCase):
         self.org.save()
         get.return_value = Mock(status_code=200)
         get.return_value.json.return_value = self.rows()
-        response = self.exchange(self.grant().data["code"])
-        self.assertEqual(response.status_code, 403)
+        self.assertEqual(self.grant().status_code, 403)
 
     @patch("authentication.crm_proof.requests.get")
     def test_insecure_directory_url_is_rejected(self, get):
@@ -172,7 +176,7 @@ class CrmDashboardTests(APITestCase):
         self.member.save()
         get.return_value = Mock(status_code=200)
         get.return_value.json.return_value = self.rows()
-        self.assertEqual(self.exchange(self.grant().data["code"]).status_code, 403)
+        self.assertEqual(self.grant().status_code, 403)
 
     def test_product_proof_cannot_mint_another_authorization_code(self):
         token = MyTokenObtainPairSerializer.access_for_user(self.user)

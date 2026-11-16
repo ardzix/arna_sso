@@ -1,78 +1,70 @@
-# DRAFT: tenant-scoped human CRM access
+# Tenant-scoped CRM: development-only draft
 
-Development only. Do not merge, migrate, deploy, or create live grants from this
-branch until the release gates below pass. No existing membership is changed.
+NOT RELEASE READY. No deployment, production migration or user grant is authorized
+by this branch. Main is untouched.
 
-## Contract
-CRMTenantGrant belongs to one OrganizationMember and one tenant UUID. The issuer
-intersects it with the active tenant directory returned by ArnaSite for that
-organization. A non-owner receives exactly one tenant and that grant's CRM-only
-permissions, never the organization's role/permission union. active_tenant_id is
-a selector, not authority. With one grant and no selection it is selected; with
-multiple grants an explicit authorized selection is required. Invalid or stale
-selection fails closed.
+## Implemented
+- CRMTenantGrant binds one OrganizationMember and tenant UUID to CRM-only permissions.
+- Issuer intersects active explicit grants with ArnaSite's active tenants for the
+  current organization. Non-owner permissions replace, never union, organization IAM.
+- Every CRM human proof is singleton, including owner proofs. Owner retains
+  authorization to owned tenants but must select one (sole tenant auto-selects).
+- Optional tenant_id at authorization is only a selector. Exchange ignores any
+  browser-submitted tenant or permission. Code stores member/org/tenant/ownership,
+  original active selector and grant revision; changes require new authorization.
+- Exchange checks browser session/fingerprint for browser-issued codes and caps
+  proof expiry at min(60 seconds, original credential/session expiry).
+- New proofs carry sub and principal_type=user but OMIT the base SimpleJWT user ID
+  claim. Standard SSO JWTAuthentication therefore cannot resolve them as users at
+  any generic token-minting endpoint (including org switch). Configuring base
+  USER_ID_CLAIM=sub fails closed for CRM issuance.
+- Authorize-code also explicitly rejects non-human/product proofs. No generic
+  serializer or existing password/social/OTP/MFA token format was changed.
+- No public grant-management endpoint exists yet. Model validation is not actor
+  authorization or tenant-ownership validation; provisioning needs both plus audit.
 
-An actual organization owner retains the existing all-owned-tenant behavior.
-There is intentionally no automatic migration from organization-wide crm.manage
-to every tenant. Existing non-owner CRM users therefore need explicitly reviewed
-tenant assignments before rollout. No management API or UI is exposed yet:
-assignment must not be made via generic organization-role UI.
+## Revocation and rollback
+New proofs have bounded expiry, NOT instant revocation. Denial applies at next
+issuance; an in-flight request or previously signed JWT may survive until expiry
+plus consumer clock leeway. ORM bulk updates bypass model save/updated_at: grant
+management must use a reviewed version-incrementing path; no such API shipped here.
 
-## Revocation
-New CRM proofs expire within 60 seconds and contain no refresh token. Deactivating
-a grant prevents the next proof, but previously signed access is NOT immediately
-revoked. Allow for verifier clock leeway and in-flight requests. Old tokens minted
-before rollout retain their original expiry. Deployment must drain their actual
-maximum lifetime or introduce an independently reviewed live introspection /
-revocation mechanism. This draft does not implement instant revocation.
+Old tokens remain usable by existing consumers until their original expiry. Before
+cutover, determine actual maximum old TTL and leeway or deploy a fail-closed
+consumer marker/cutoff gate in BOTH CRM and BNK. A rollback to the old issuer can
+mint broad organization-wide grants again: retain the consumer gate / stop
+issuance during rollback. Additive schema alone does not make rollback safe.
 
-Membership/session and grant changes can race with issuance, so the expiry bound
-also applies to issuance concurrent with revocation. No claim of linearizable
-revocation is made.
+## Isolated tests, executed
+36 tests passed with Django 5.0.6 + DRF + real signed RS256 JWT, real model persistence
+in ephemeral SQLite, ArnaSite mocked and ephemeral test-only signing keys.
+Tests include base login, proof singleton, standard JWTAuthentication rejecting CRM
+proof as a user, authorize rejection, pending-code revoke, permission/revision
+change, org/tenant/owner switches, logout, original credential expiry, code reuse,
+legacy unbound code, directory failures and pure policy cases.
+This is NOT the full SSO suite, production database migration test, endpoint-level
+CRM CRUD test or complete frontend E2E. AppConfig signal hooks and migrations are
+deliberately disabled in the isolated harness to avoid unrelated integrations.
 
-## Issuance / compatibility
-- arna-site-crm PKCE exchange invokes crm_dashboard_proof, now scoped.
-- Generic human authorization-code creation rejects product audience, tenant
-  claims, device principals, pre-auth and non-access tokens.
-- Browser-session entry already requires human/base-audience proof.
-- Current APP_CLIENTS does not include arna-site-crm. App resolve is not a CRM
-  refresh path. Website customer proof and service/device tokens are separate
-  contracts and must not gain human grants.
-- CRM validates the signed tenant set before CRMAccess checks crm.manage. Existing
-  CRMAccess requires no permission-name change.
-- BNK must handle a 60-second proof expiry and reauthorize transparently, without
-  widening to generic SSO tokens or replaying writes.
-- JWT audience policy and all alternative issuers must be reviewed with the
-  paired CRM backend before release. Do not rely only on a frontend tenant menu.
+Reproduce in an isolated checkout / virtualenv:
+    pip install -r scripts/crm_scope_test/requirements.txt
+    PYTHONPATH=scripts/crm_scope_test:$PYTHONPATH DJANGO_SETTINGS_MODULE=isolated_settings \
+      python -m django test authentication.tests.test_crm_dashboard \
+        authentication.tests.test_crm_bound_codes iam.test_crm_scope
 
-## Tests and gates
-Executed here: 9 pure policy tests (including malformed-permission subcases).
-Django/DRF integration tests are provided in authentication/tests/test_crm_dashboard.py
-but NOT executed in the current read-only environment (Django absent).
-Required before release:
-1. Run Django migration consistency and full authentication/IAM test suites in an
-   isolated test database. Existing force_authenticate fixtures that omit request.auth
-   need real base-audience token fixtures rather than bypassing the new guard.
-2. Real signed-JWT tests for wrong audience, refresh rejection, same-org/different
-   tenant, foreign organization, browser-supplied claims, and every token issuer.
-3. CRM endpoint CRUD isolation tests plus BFF expiry/reauthorization behavior.
-4. Review grant provisioning authorization, audit trail and tenant ownership checks
-   in the eventual admin API. The model alone is NOT a public grant endpoint.
-5. Confirm owner compatibility, enumerate existing non-owner access, approve bounded
-   revocation or implement introspection, and obtain deployment authorization.
-
-No production or user grant is included in this development branch.
-
-## Independent review: unresolved release blockers
-- Authorization codes currently bind client/user/redirect/PKCE but not authorized
-  organization/tenant. Add explicit context binding and reject switches between
-  authorization and exchange before release.
-- CRM exchange must revalidate originating central browser session/fingerprint
-  when a browser_session_key is present, rather than relying solely on code TTL.
-- Review every consumer/issuer for audience laundering. The authorize-code guard
-  here is only one boundary, not proof all generic authenticated SSO APIs are safe.
-- Preserve service website_chat's dedicated narrow contract. Generic service
-  accounts with arna-crm audience must not be mistaken for human dashboard grants.
-- Owner multi-tenant behavior is deliberately preserved in this draft, pending
-  a compatibility decision; this is not a claim all CRM tokens are singleton.
-- Existing tests using force_authenticate without a token require fixture updates.
+## Remaining coordinated release blockers
+1. BNK session-client renews at exp<=now+60: incompatible with new60s token TTL.
+   Lower renewal skew and test deduplicated parallel401, polling, denied renewals.
+2. BNK start/resume/callback must carry the selected tenant; its dashboard selector
+   differs from SSO's active_tenant_id. Generic SSO selection must not silently
+   authorize the wrong tenant. New guard compatibility needs all-client tests.
+3. BNK and CRM currently union tenant_id with tenant_ids. Enforce consistent
+   singleton human proofs, principal user and marker/cutoff at both consumers.
+4. Audit service/device/website paths independently. crm.website_chat is a
+   separate exact-scope tenant service contract and must not become dashboard
+   access. AppSession APP_CLIENTS currently excludes arna-site-crm.
+5. Run full migration consistency and auth/IAM regression on isolated PostgreSQL,
+   plus actual CRM CRUD/FE E2E and concurrent exchange tests.
+6. Owner multi-tenant selection is now deliberate fail-closed behavior; verify
+   callers send tenant choice before rollout. Existing non-owner users require
+   explicit reviewed grants, never auto-grant all tenants.
