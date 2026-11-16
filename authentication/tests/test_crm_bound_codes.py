@@ -72,6 +72,7 @@ class BoundCRMCodeTests(APITestCase):
         self.assertEqual(claims["permissions"], ["crm.manage"])
         self.assertFalse(claims["is_owner"])
         self.assertNotIn("user_id", claims)
+        self.assertEqual(claims["crm_contract_version"], 1)
         self.assertLessEqual(claims["exp"] - claims["iat"], 60)
 
     def test_signed_crm_proof_cannot_authorize_generic_sso(self):

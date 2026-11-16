@@ -126,6 +126,7 @@ def crm_dashboard_proof(user, *, requested_tenant_id=None, expected_context=None
     access.payload.pop(api_settings.USER_ID_CLAIM, None)
     access["sub"] = str(user.pk)
     access["principal_type"] = "user"
+    access["crm_contract_version"] = 1
     access["tenant_id"] = selected
     access["organization_id"] = org_id
     access["tenant_ids"] = sorted(tenant_ids)
