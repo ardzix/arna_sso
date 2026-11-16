@@ -268,6 +268,7 @@ class SSOAuthorizationCode(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     expires_at = models.DateTimeField()
     used_at = models.DateTimeField(null=True, blank=True)
+    browser_session_key = models.CharField(max_length=40, blank=True, default="")
 
     class Meta:
         ordering = ("-created_at",)
@@ -290,6 +291,7 @@ class SSOAuthorizationCode(models.Model):
         code_challenge,
         code_challenge_method,
         expires_at,
+        browser_session_key="",
     ):
         code = secrets.token_urlsafe(48)
         instance = cls.objects.create(
@@ -300,6 +302,7 @@ class SSOAuthorizationCode(models.Model):
             code_challenge=code_challenge,
             code_challenge_method=code_challenge_method,
             expires_at=expires_at,
+            browser_session_key=browser_session_key,
         )
         return code, instance
 
@@ -315,6 +318,16 @@ class SSOAuthorizationCode(models.Model):
 
     def __str__(self):
         return f"{self.client_id} -> {self.redirect_uri}"
+
+
+class SSOAppSession(models.Model):
+    credential_hash = models.CharField(max_length=64, primary_key=True)
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    client_id = models.CharField(max_length=120)
+    browser_session_key = models.CharField(max_length=40)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(db_index=True)
+    revoked_at = models.DateTimeField(null=True, blank=True)
 
 
 class DeviceRegistration(models.Model):

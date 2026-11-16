@@ -65,6 +65,33 @@ class ReleaseTests(unittest.TestCase):
         verify.assert_called_once()
         self.assertEqual(json.loads((self.folder / 'release.json').read_text())['migration'], 'complete_exit_0')
 
+    def test_roll_keeps_dedicated_smtp_and_operator_exception_secrets(self):
+        baseline = self.baseline()
+        spec = baseline['Spec']['TaskTemplate']['ContainerSpec']
+        spec['Env'].append('SSO_SMTP_SECRET_PATH=/run/secrets/sso_smtp')
+        spec['Secrets'] += [{'SecretID': 'id-' + target, 'SecretName': 'name-' + target, 'File': {'Name': target}}
+                            for target in ('sso_smtp', 'sso_home_exception')]
+        docker = self.simulate_roll(baseline, set())
+        calls = []
+
+        def capture(args, **kwargs):
+            calls.append((args, kwargs))
+            return docker(args, **kwargs)
+
+        with patch.object(release, 'inspect_service', return_value=baseline), \
+             patch.object(release, 'run', side_effect=capture), \
+             patch.object(release, 'wait_task', return_value='synthetic-migration'), \
+             patch.object(release, 'verify'), patch.object(release.subprocess, 'run'):
+            release.roll(self.commit, self.folder)
+        update = next(args for args, _ in calls if args[:3] == ['docker', 'service', 'update'])
+        self.assertNotIn('name-sso_smtp', update)
+        self.assertNotIn('name-sso_home_exception', update)
+        migration = next(args for args, _ in calls if args[:3] == ['docker', 'service', 'create'])
+        self.assertIn('source=name-sso_smtp,target=sso_smtp,mode=0400', migration)
+        runtime = next(json.loads(kwargs['input']) for args, kwargs in calls
+                       if args[:3] == ['docker', 'secret', 'create'] and '-runtime-' in args[3])
+        self.assertEqual(runtime['SSO_SMTP_SECRET_PATH'], '/run/secrets/sso_smtp')
+
     def test_retry_uses_fresh_immutable_secrets_and_preserves_original_snapshot(self):
         baseline = self.baseline()
         created = set()

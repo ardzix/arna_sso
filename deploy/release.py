@@ -162,6 +162,11 @@ def roll(commit, folder):
     if cs.get('Mounts'):
         raise RuntimeError('Runtime mounts changed since inspected baseline; review before proceeding')
     environment = dict(value.split('=', 1) for value in cs.get('Env', []))
+    pointers = {key: value for key, value in environment.items() if key == 'SSO_SMTP_SECRET_PATH'}
+    core_targets = {'sso_runtime', 'sso_jwt_private', 'sso_jwt_public'}
+    extra_secrets = [item for item in cs.get('Secrets', []) if item['File']['Name'] not in core_targets]
+    if any(item['File']['Name'] not in {'sso_home_exception', 'sso_smtp'} for item in extra_secrets):
+        raise RuntimeError('Unknown auxiliary secret layout; preserve it after review')
     names = run(['docker', 'ps', '--filter', 'label=com.docker.swarm.service.name=' + SERVICE, '--format', '{{.Names}}']).splitlines()
     if len(names) != 2:
         raise RuntimeError('Expected two healthy baseline replicas')
@@ -169,6 +174,7 @@ def roll(commit, folder):
         if environment.get('SSO_RUNTIME_SECRET_PATH') != '/run/secrets/sso_runtime':
             raise RuntimeError('Unknown runtime secret layout; review before proceeding')
         environment = json.loads(run(['docker', 'exec', names[0], 'python', '-c', 'from pathlib import Path;print(Path("/run/secrets/sso_runtime").read_text())']))
+    environment.update(pointers)
     if not all(environment.get(name) for name in ('SECRET_KEY', 'DB_HOST', 'DB_NAME', 'DB_USER', 'DB_PASSWORD')):
         raise RuntimeError('Incomplete existing runtime configuration')
     if environment.get('DEBUG', '').lower() not in ('false', '0'):
@@ -190,6 +196,8 @@ def roll(commit, folder):
     options = ['--env', 'SSO_RUNTIME_SECRET_PATH=/run/secrets/sso_runtime', '--network', 'production']
     for kind, target in [('runtime', 'sso_runtime'), ('private', 'sso_jwt_private'), ('public', 'sso_jwt_public')]:
         options += ['--secret', 'source=' + secret_names[kind] + ',target=' + target + ',mode=0400']
+    for item in extra_secrets:
+        options += ['--secret', 'source=' + item['SecretName'] + ',target=' + item['File']['Name'] + ',mode=0400']
     migrate = 'sso-gift-migrate-' + commit[:12]
     try:
         run(['docker', 'service', 'create', '--detach=true', '--with-registry-auth', '--name', migrate, '--restart-condition', 'none',
@@ -210,7 +218,8 @@ def roll(commit, folder):
         update += ['--env-rm', key]
     for secret in cs.get('Secrets') or []:
         # Docker CLI matches --secret-rm against SecretName, not SecretID.
-        update += ['--secret-rm', secret['SecretName']]
+        if secret['File']['Name'] in core_targets:
+            update += ['--secret-rm', secret['SecretName']]
     update += ['--env-add', 'SSO_RUNTIME_SECRET_PATH=/run/secrets/sso_runtime']
     # A separately provisioned, immutable operator exception can expire without
     # rotating credentials or rebuilding/restarting SSO.
@@ -225,6 +234,7 @@ def roll(commit, folder):
     # qcluster under the inspected manager's limited free memory.
     run(update, timeout=420, diagnostic_path=folder / ('rollout-error-' + attempt + '.json'))
     record.update(status='deployed', secrets=secret_names, public_key_fingerprint=fingerprint,
+                  preserved_secret_targets=[item['File']['Name'] for item in extra_secrets],
                   configuration_source='immutable full runtime Swarm secret; previous-service.json retained privately')
     write_private(folder / 'release.json', record)
     verify(commit, folder)
