@@ -139,7 +139,7 @@ def sso_login_page(request):
         params, error = None, str(exc.detail[0])
     user = _browser_user(request) if not error else None
     if user and params:
-        result = _issue_authorization_code(user, params)
+        result = _issue_authorization_code(user, params, browser_session_key=request.COOKIES[SSO_BROWSER_COOKIE])
         if result.status_code == 201:
             return HttpResponseRedirect(result.data["redirect_url"])
         error = result.data["error"]
@@ -170,22 +170,21 @@ class SSOBrowserSessionView(APIView):
         if not isinstance(request.data, dict):
             raise serializers.ValidationError("Expected a JSON object.")
         params = _browser_params(request.data)
-        if params:
-            result = _issue_authorization_code(request.user, params)
-            if result.status_code != 201:
-                return result
-            destination = result.data["redirect_url"]
-        else:
-            destination = "/login/"
-
-        store = _browser_store(request)
-        if store.session_key:
-            store.delete(store.session_key)
+        previous = _browser_store(request)
         store = SessionStore()
         store["browser_user"] = str(request.user.pk)
         store["auth_fingerprint"] = _browser_fingerprint(request.user)
         store.set_expiry(SSO_BROWSER_SECONDS)
         store.create()
+        destination = "/login/"
+        if params:
+            result = _issue_authorization_code(request.user, params, browser_session_key=store.session_key)
+            if result.status_code != 201:
+                store.delete()
+                return result
+            destination = result.data["redirect_url"]
+        if previous.session_key:
+            previous.delete()
         rotate_token(request)
         response = Response({"redirect_url": destination})
         response.set_cookie(SSO_BROWSER_COOKIE, store.session_key, max_age=SSO_BROWSER_SECONDS,
@@ -246,7 +245,7 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
         return _issue_authorization_code(request.user, data)
 
 
-def _issue_authorization_code(user, data):
+def _issue_authorization_code(user, data, browser_session_key=""):
     if not user.is_active:
         return Response(
             {"error": "Account is not active. Please verify your email/phone first."},
@@ -277,6 +276,7 @@ def _issue_authorization_code(user, data):
         code_challenge=data["code_challenge"],
         code_challenge_method=data["code_challenge_method"],
         expires_at=expires_at,
+        browser_session_key=browser_session_key,
     )
 
     query = {"code": code}
@@ -393,7 +393,11 @@ The code is single-use; an invalid verifier, reused code, or changed redirect UR
                 return Response({"error": "Invalid or expired authorization code"}, status=400)
             return Response(proof, status=status.HTTP_200_OK)
 
-        auth_code.mark_used()
+        consumed = SSOAuthorizationCode.objects.filter(
+            pk=auth_code.pk, used_at__isnull=True, expires_at__gt=timezone.now()
+        ).update(used_at=timezone.now())
+        if not consumed:
+            return Response({"error": "Invalid or expired authorization code"}, status=400)
         refresh = MyTokenObtainPairSerializer.get_token(user)
         return Response(
             {

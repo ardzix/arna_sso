@@ -30,6 +30,16 @@ class MyTokenObtainPairSerializer(TokenObtainPairSerializer):
     @classmethod
     def get_token(cls, user):
         token = super().get_token(user)
+        return cls.add_user_claims(token, user)
+
+    @classmethod
+    def access_for_user(cls, user):
+        # App BFF sessions need an access JWT, never a newly persisted refresh.
+        from rest_framework_simplejwt.tokens import AccessToken
+        return cls.add_user_claims(AccessToken.for_user(user), user)
+
+    @classmethod
+    def add_user_claims(cls, token, user):
         token['email'] = user.email
         token['phone_number'] = user.phone_number or ""
         token['phone_verified'] = bool(user.phone_verified)

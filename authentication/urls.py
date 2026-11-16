@@ -1,3 +1,4 @@
+from .home_exception import HOME_EXCEPTION_THROTTLES
 from django.urls import path
 from rest_framework_simplejwt.views import TokenVerifyView
 from .views import (
@@ -38,12 +39,16 @@ from .passkeys_api_views import (
     PasskeyDeleteView,
 )
 from .sso_views import SSOAuthorizeCodeView, SSOTokenExchangeView
+from .app_sessions import AppSessionCreateView, AppSessionResolveView, AppSessionRevokeView
 from .device_views import DeviceAuthorizeView, DeviceVerificationView, DeviceTokenView, DeviceRefreshView, DeviceRevokeView, DeviceReviewView, DeviceInventoryView, DeviceDetailView
 from .device_status import DeviceStatusView, DeviceIntrospectionView
 
 urlpatterns = [
+    path('sso/app-session/', AppSessionCreateView.as_view(), name='sso_app_session'),
+    path('sso/app-session/resolve/', AppSessionResolveView.as_view(), name='sso_app_session_resolve'),
+    path('sso/app-session/revoke/', AppSessionRevokeView.as_view(), name='sso_app_session_revoke'),
     path('sso/authorize-code/', SSOAuthorizeCodeView.as_view(), name='sso_authorize_code'),
-    path('sso/token/', SSOTokenExchangeView.as_view(), name='sso_token_exchange'),
+    path('sso/token/', SSOTokenExchangeView.as_view(throttle_classes=HOME_EXCEPTION_THROTTLES), name='sso_token_exchange'),
     path('service-token/', ServiceTokenView.as_view(), name='service_token'),
     path('device/authorize/', DeviceAuthorizeView.as_view(), name='device_authorize'),
     path('device/verification/', DeviceVerificationView.as_view(), name='device_verification'),
@@ -58,13 +63,13 @@ urlpatterns = [
     path('register/', RegisterView.as_view(), name='register'),
     path('me/', ManageUserView.as_view(), name='manage_user'),
     path('logout/', LogoutView.as_view(), name='logout'),
-    path('token/refresh/', RefreshTokenView.as_view(), name='token_refresh'),
+    path('token/refresh/', RefreshTokenView.as_view(throttle_classes=HOME_EXCEPTION_THROTTLES), name='token_refresh'),
     path('token/verify/', TokenVerifyView.as_view(), name='token_verify'),
     path('mfa/confirm/', MFAConfirmView.as_view(), name='mfa_confirm'),
     path('mfa/set/', SetMFAView.as_view(), name='set_mfa'),
     path('mfa/status/', MFAStatusView.as_view(), name='mfa_status'),
     path('mfa/disable/', DisableMFAView.as_view(), name='disable_mfa'),
-    path('login/', MFAAwareLoginView.as_view(), name='login'),
+    path('login/', MFAAwareLoginView.as_view(throttle_classes=HOME_EXCEPTION_THROTTLES), name='login'),
     path('google-login/', GoogleLoginView.as_view(), name='google-login'),
     path('mfa/verify/', MFAVerifyView.as_view(), name='mfa_verify'),
     path("verify-email/", VerifyEmailView.as_view(), name="verify_email"),
