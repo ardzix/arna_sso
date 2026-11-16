@@ -1,6 +1,9 @@
 """CRM dashboard grants: identity/IAM from SSO, tenant ownership from ArnaSite."""
 
 from uuid import UUID
+from datetime import timedelta
+from iam.models import CRMTenantGrant
+from iam.crm_scope import resolve_crm_grant
 from urllib.parse import urlsplit
 
 import requests
@@ -26,7 +29,7 @@ def crm_dashboard_proof(user):
     if not user.is_active or not member:
         raise PermissionDenied("Select an organization before opening CRM.")
     org_id = str(member.organization_id)
-    access = MyTokenObtainPairSerializer.get_token(user).access_token
+    access = MyTokenObtainPairSerializer.access_for_user(user)
     if access.get("org_id") != org_id:
         raise PermissionDenied("The active organization changed. Please retry.")
     issuer = settings.SIMPLE_JWT.get("ISSUER") or "https://sso.arnatech.id"
@@ -62,12 +65,35 @@ def crm_dashboard_proof(user):
     # Ensure membership has not been switched while resolving the workspace.
     if not OrganizationMember.objects.filter(pk=member.pk, user=user, is_session_active=True).exists():
         raise PermissionDenied("The active organization changed. Please retry.")
+    member.refresh_from_db()
+    if not member.is_session_active:
+        raise PermissionDenied("The active organization changed. Please retry.")
+    is_owner = member.organization.owner_id == user.pk
+    if not is_owner:
+        grants = list(CRMTenantGrant.objects.filter(
+            organization_member=member, is_active=True,
+        ).values("tenant_id", "permissions"))
+        try:
+            selected, permissions = resolve_crm_grant(
+                tenant_ids, grants, member.active_tenant_id,
+            )
+        except (ValueError, TypeError, KeyError) as exc:
+            raise PermissionDenied("No explicit CRM grant for the selected tenant.") from exc
+        tenant_ids = {selected}
+        # Never union scoped CRM permissions with organization IAM permissions.
+        access["permissions"] = permissions
+        access["roles"] = []
+        access.payload.pop("scope", None)
+        access["crm_grant_version"] = 1
+    # Bounded revocation only: consumers validate expiry, not live grants.
+    lifetime = min(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"], timedelta(seconds=60))
+    access.set_exp(lifetime=lifetime)
     access["aud"] = "arna-crm"
     access["sub"] = str(user.pk)
     access["organization_id"] = org_id
     access["tenant_ids"] = sorted(tenant_ids)
-    access["is_owner"] = member.organization.owner_id == user.pk
+    access["is_owner"] = is_owner
     # Local/legacy serializer hints do not override ArnaSite's membership result.
     access.payload.pop("tenant_id", None)
     return {"access": str(access), "token_type": "Bearer",
-            "expires_in": int(settings.SIMPLE_JWT["ACCESS_TOKEN_LIFETIME"].total_seconds())}
+            "expires_in": int(lifetime.total_seconds())}

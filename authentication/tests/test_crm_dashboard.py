@@ -11,6 +11,8 @@ from rest_framework.test import APITestCase
 
 from authentication.models import User, SSOAllowedRedirectURI, SSOAuthorizationCode
 from organization.models import Organization, OrganizationMember
+from authentication.serializers import MyTokenObtainPairSerializer
+from iam.models import CRMTenantGrant
 
 
 @override_settings(SSO_ALLOWED_REDIRECT_URIS=[], CRM_ARNASITE_TENANTS_URL="https://site.test/api/tenants/")
@@ -28,7 +30,7 @@ class CrmDashboardTests(APITestCase):
                         "code_challenge": self.challenge, "code_challenge_method": "S256", "state": "csrf-state"}
 
     def grant(self, **kwargs):
-        self.client.force_authenticate(user=self.user)
+        self.client.force_authenticate(user=self.user, token=MyTokenObtainPairSerializer.access_for_user(self.user))
         return self.client.post(reverse("sso_authorize_code"), {**self.payload, **kwargs}, format="json")
 
     def exchange(self, code):
@@ -116,11 +118,7 @@ class CrmDashboardTests(APITestCase):
         get.return_value = Mock(status_code=200)
         get.return_value.json.return_value = self.rows()
         response = self.exchange(self.grant().data["code"])
-        self.assertEqual(response.status_code, 200)
-        claims = jwt.decode(response.data["access"], settings.SIMPLE_JWT["VERIFYING_KEY"], algorithms=["RS256"], audience="arna-crm")
-        self.assertFalse(claims["is_owner"])
-        self.assertEqual(claims["permissions"], [])
-        self.assertNotIn("scope", claims)
+        self.assertEqual(response.status_code, 403)
 
     @patch("authentication.crm_proof.requests.get")
     def test_insecure_directory_url_is_rejected(self, get):
@@ -128,3 +126,59 @@ class CrmDashboardTests(APITestCase):
         with override_settings(DEBUG=False, CRM_ARNASITE_TENANTS_URL="http://site.test/api/tenants/"):
             self.assertEqual(self.exchange(code).status_code, 503)
         get.assert_not_called()
+
+    def nonowner_grant(self):
+        owner = User.objects.create_user(email="owner-scope@example.com", password=None, is_active=True)
+        self.org.owner = owner
+        self.org.save()
+        return CRMTenantGrant.objects.create(
+            organization_member=self.member, tenant_id=self.tenant, permissions=["crm.manage"],
+        )
+
+    @patch("authentication.crm_proof.requests.get")
+    def test_explicit_grant_restricts_to_one_tenant_and_short_lifetime(self, get):
+        self.nonowner_grant()
+        other = str(uuid.uuid4())
+        rows = self.rows()
+        rows["results"].append({"tenant_id": other, "sso_organization_id": str(self.org.pk), "is_active": True})
+        get.return_value = Mock(status_code=200)
+        get.return_value.json.return_value = rows
+        response = self.exchange(self.grant().data["code"])
+        self.assertEqual(response.status_code, 200)
+        claims = jwt.decode(response.data["access"], settings.SIMPLE_JWT["VERIFYING_KEY"], algorithms=["RS256"], audience="arna-crm")
+        self.assertEqual(claims["tenant_ids"], [self.tenant])
+        self.assertEqual(claims["permissions"], ["crm.manage"])
+        self.assertEqual(claims["roles"], [])
+        self.assertFalse(claims["is_owner"])
+        self.assertLessEqual(claims["exp"] - claims["iat"], 60)
+        self.assertLessEqual(response.data["expires_in"], 60)
+        self.assertNotIn("refresh", response.data)
+
+    @patch("authentication.crm_proof.requests.get")
+    def test_revocation_blocks_new_proofs_without_consuming_code(self, get):
+        grant = self.nonowner_grant()
+        get.return_value = Mock(status_code=200)
+        get.return_value.json.return_value = self.rows()
+        code = self.grant().data["code"]
+        grant.is_active = False
+        grant.save()
+        self.assertEqual(self.exchange(code).status_code, 403)
+        self.assertFalse(SSOAuthorizationCode.objects.get(code_hash=SSOAuthorizationCode.hash_code(code)).is_used())
+
+    @patch("authentication.crm_proof.requests.get")
+    def test_active_tenant_selector_does_not_grant_access(self, get):
+        self.nonowner_grant()
+        self.member.active_tenant_id = uuid.uuid4()
+        self.member.save()
+        get.return_value = Mock(status_code=200)
+        get.return_value.json.return_value = self.rows()
+        self.assertEqual(self.exchange(self.grant().data["code"]).status_code, 403)
+
+    def test_product_proof_cannot_mint_another_authorization_code(self):
+        token = MyTokenObtainPairSerializer.access_for_user(self.user)
+        token["aud"] = "arna-crm"
+        token["tenant_ids"] = [self.tenant]
+        self.client.force_authenticate(user=self.user, token=token)
+        response = self.client.post(reverse("sso_authorize_code"), self.payload, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertEqual(SSOAuthorizationCode.objects.count(), 0)

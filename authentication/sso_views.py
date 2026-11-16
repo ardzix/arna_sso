@@ -162,7 +162,7 @@ class SSOBrowserSessionView(APIView):
 
     def post(self, request):
         token = request.auth
-        if (token.get("token_type") != "access" or token.get("type") == "pre_auth"
+        if (token is None or token.get("token_type") != "access" or token.get("type") == "pre_auth"
                 or token.get("principal_type", "user") != "user"
                 or token.get("aud") != settings.SIMPLE_JWT.get("AUDIENCE")
                 or token.get("device_id") or token.get("tenant_ids")):
@@ -238,6 +238,13 @@ Never exchange codes in browser JavaScript. Validate `state` in the product call
         responses={201: openapi.Response(description="One-time authorization code and callback URL", examples={"application/json": {"code": "opaque-one-time-code", "redirect_url": "https://product.example/callback?code=opaque-one-time-code&state=request-state", "expires_in": 120}}), 400: "Redirect URI is not registered or payload is invalid", 401: "User bearer token required", 403: "User account is not active"},
     )
     def post(self, request):
+        token = request.auth
+        if (token.get("token_type") != "access" or token.get("type") == "pre_auth"
+                or token.get("principal_type", "user") != "user"
+                or token.get("aud") != settings.SIMPLE_JWT.get("AUDIENCE")
+                or token.get("device_id") or token.get("tenant_ids")
+                or token.get("tenant_id")):
+            raise PermissionDenied("A human SSO login is required.")
         serializer = SSOAuthorizeSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data

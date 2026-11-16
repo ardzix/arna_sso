@@ -113,3 +113,33 @@ class ProductProvisioningEvent(models.Model):
     result = models.JSONField(default=dict)
     created_at = models.DateTimeField(auto_now_add=True)
 
+
+
+class CRMTenantGrant(models.Model):
+    """Explicit human CRM access. No organization role inheritance."""
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    organization_member = models.ForeignKey(
+        'organization.OrganizationMember', on_delete=models.CASCADE,
+        related_name='crm_tenant_grants',
+    )
+    tenant_id = models.UUIDField()
+    permissions = models.JSONField(default=list)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(
+            fields=['organization_member', 'tenant_id'], name='unique_member_crm_tenant'
+        )]
+
+    def clean(self):
+        from django.core.exceptions import ValidationError
+        from iam.crm_scope import CRM_PERMISSIONS
+        if (not isinstance(self.permissions, list) or not self.permissions
+                or any(not isinstance(p, str) or p not in CRM_PERMISSIONS for p in self.permissions)):
+            raise ValidationError({'permissions': 'Explicit CRM-only permissions are required.'})
+
+    def save(self, *args, **kwargs):
+        self.full_clean()
+        return super().save(*args, **kwargs)
