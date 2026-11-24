@@ -196,8 +196,16 @@ def roll(commit, folder):
     baseline_roles = [process_roles(name) for name in names]
     if not baseline_roles[0]['api'] or baseline_roles[0] != baseline_roles[1]:
         raise RuntimeError('Baseline process roles are not healthy and consistent')
-    record['baseline_process_roles'] = baseline_roles[0]
-    write_private(folder / 'release.json', record)
+    original_roles = record.get('baseline_process_roles')
+    if original_roles is not None and original_roles != baseline_roles[0]:
+        raise RuntimeError('Current roles differ from the original release baseline; recover before retrying')
+    if not baseline_roles[0]['qcluster'] and not any(
+            config.get('File', {}).get('Name') == '/etc/supervisor/conf.d/supervisord.conf'
+            for config in cs.get('Configs', [])):
+        raise RuntimeError('Web-only baseline needs a preserved Supervisor configuration before rollout')
+    if original_roles is None:
+        record['baseline_process_roles'] = baseline_roles[0]
+        write_private(folder / 'release.json', record)
     if cs.get('Secrets'):
         if environment.get('SSO_RUNTIME_SECRET_PATH') != '/run/secrets/sso_runtime':
             raise RuntimeError('Unknown runtime secret layout; review before proceeding')

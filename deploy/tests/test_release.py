@@ -28,6 +28,7 @@ class ReleaseTests(unittest.TestCase):
         return {'Spec': {'TaskTemplate': {'ContainerSpec': {
             'Image': 'synthetic-old-image',
             'Env': ['SSO_RUNTIME_SECRET_PATH=/run/secrets/sso_runtime'],
+            'Configs': [{'ConfigName': 'synthetic-web-only', 'File': {'Name': '/etc/supervisor/conf.d/supervisord.conf'}}],
             'Secrets': [{'SecretID': 'id-' + kind, 'SecretName': 'name-' + kind, 'File': {'Name': target}}
                         for kind, target in [('runtime', 'sso_runtime'), ('private', 'sso_jwt_private'), ('public', 'sso_jwt_public')]]}}}}
 
@@ -109,6 +110,31 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(len(created), 6)
         self.assertEqual((self.folder / 'previous-service.json').read_bytes(), snapshot)
         self.assertEqual(len(list(self.folder.glob('previous-service-*.json'))), 1)
+
+    def test_retry_cannot_redefine_original_queue_roles_after_a_failed_rollout(self):
+        baseline = self.baseline()
+        original = {**self.record, 'baseline_process_roles': {'api': True, 'qcluster': True}}
+        release.write_private(self.folder / 'release.json', original)
+        created = set()
+        with patch.object(release, 'inspect_service', return_value=baseline), \
+             patch.object(release, 'run', side_effect=self.simulate_roll(baseline, created)):
+            with self.assertRaisesRegex(RuntimeError, 'original release baseline'):
+                release.roll(self.commit, self.folder)
+        self.assertFalse(created)
+        self.assertEqual(json.loads((self.folder / 'release.json').read_text())['baseline_process_roles'],
+                         original['baseline_process_roles'])
+
+    def test_web_only_without_configuration_override_stops_before_secret_or_migration(self):
+        baseline = self.baseline()
+        baseline['Spec']['TaskTemplate']['ContainerSpec'].pop('Configs')
+        created = set()
+        with patch.object(release, 'inspect_service', return_value=baseline), \
+             patch.object(release, 'run', side_effect=self.simulate_roll(baseline, created)), \
+             patch.object(release, 'wait_task') as migrate:
+            with self.assertRaisesRegex(RuntimeError, 'preserved Supervisor'):
+                release.roll(self.commit, self.folder)
+        self.assertFalse(created)
+        migrate.assert_not_called()
 
     def build_reply(self, revision):
         def docker(args, **kwargs):
