@@ -186,7 +186,9 @@ class ResourceTokenView(DeviceAPIView):
     def post(self, request):
         audience = _validated(ResourceTokenSerializer, request.data)['audience']
         resource_permissions = (RESOURCE_PERMISSIONS if isinstance(request.user, ResourceDevicePrincipal)
-                                else HUMAN_RESOURCE_PERMISSIONS)[audience]
+                                else HUMAN_RESOURCE_PERMISSIONS).get(audience)
+        if not resource_permissions:
+            raise PermissionDenied('This principal cannot access the requested resource.')
         subject_exp = request.auth.get('exp') if request.auth is not None else None
         expires_in = min(settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60,
                          max(0, subject_exp - int(time.time()))) if subject_exp is not None else settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES * 60
@@ -200,7 +202,7 @@ class ResourceTokenView(DeviceAPIView):
             token = _device_access_token(device, audience=audience, subject_exp=subject_exp)
             kind = 'DPoP' if device.public_key_thumbprint else 'Bearer'
         else:
-            context = _human_storage_context(request, require_tenant=audience == 'arna-commerce')
+            context = _human_storage_context(request, require_tenant=audience in {'arna-commerce', 'arna-operations'})
             roles, permissions = effective_access(request.user, context.organization)
             owner = context.organization.owner_id == request.user.pk
             permissions = sorted(resource_permissions if owner else set(permissions) & resource_permissions)

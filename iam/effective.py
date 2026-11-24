@@ -12,9 +12,11 @@ RESOURCE_PERMISSIONS = {'storage': STORAGE_PERMISSIONS, 'arna-commerce': COMMERC
 COMMERCE_CATALOG_PERMISSIONS = {
     'commerce.catalog.read', 'commerce.catalog.write', 'commerce.catalog.delete',
 }
+OPERATIONS_PERMISSIONS = {'operations.read', 'operations.write', 'operations.manage'}
 HUMAN_RESOURCE_PERMISSIONS = {
     'storage': STORAGE_PERMISSIONS,
     'arna-commerce': COMMERCE_DEVICE_PERMISSIONS | COMMERCE_CATALOG_PERMISSIONS,
+    'arna-operations': OPERATIONS_PERMISSIONS,
 }
 
 
