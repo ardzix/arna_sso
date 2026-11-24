@@ -7,7 +7,8 @@ if os.environ.get("GIFT_TEST_POSTGRES_HOST"):
     DATABASES = {"default": {
         "ENGINE": "django.db.backends.postgresql", "NAME": "ols_gift_isolated",
         "HOST": os.environ["GIFT_TEST_POSTGRES_HOST"], "USER": "postgres",
-        "PASSWORD": os.environ["GIFT_TEST_POSTGRES_PASSWORD"], "PORT": "5432",
+        "PASSWORD": os.environ["GIFT_TEST_POSTGRES_PASSWORD"],
+        "PORT": os.environ.get("GIFT_TEST_POSTGRES_PORT", "5432"),
     }}
 EMAIL_BACKEND = "django.core.mail.backends.locmem.EmailBackend"
 ALLOWED_HOSTS = ["testserver", "localhost"]
