@@ -1,5 +1,7 @@
 """Release regressions using synthetic specs, no Docker/production credentials."""
 import importlib.util
+import contextlib
+import io
 import json
 from pathlib import Path
 from subprocess import CompletedProcess
@@ -34,6 +36,8 @@ class ReleaseTests(unittest.TestCase):
             if args[:2] == ['docker', 'ps']:
                 return 'synthetic-api-1\nsynthetic-api-2\n'
             if args[:2] == ['docker', 'exec']:
+                if args[-1] == release.PROCESS_ROLE_PROBE:
+                    return json.dumps({'api': True, 'qcluster': False})
                 if '/run/secrets/sso_runtime' in args[-1]:
                     return json.dumps({'SECRET_KEY': 'synthetic', 'DB_HOST': 'synthetic', 'DB_NAME': 'synthetic',
                                        'DB_USER': 'synthetic', 'DB_PASSWORD': 'synthetic', 'DEBUG': 'false',
@@ -143,6 +147,36 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(json.loads(diagnostic.read_text())['stderr'], result.stderr)
         self.assertNotIn('synthetic-private-value', diagnostic.read_text() + str(error.exception))
         self.assertNotIn('synthetic-private-input', diagnostic.read_text() + str(error.exception))
+
+
+class ProcessRoleTests(unittest.TestCase):
+    def probe(self, commands):
+        class ProcessFile:
+            def __init__(self, command):
+                self.command = command
+
+            def read_bytes(self):
+                return self.command
+
+        result = io.StringIO()
+        with patch.object(Path, 'glob', return_value=[ProcessFile(command) for command in commands]), contextlib.redirect_stdout(result):
+            exec(release.PROCESS_ROLE_PROBE, {})
+        return json.loads(result.getvalue())
+
+    def test_probe_cannot_mistake_its_own_python_command_for_queue(self):
+        result = self.probe([b'/usr/local/bin/uwsgi\0--ini\0app.ini\0',
+                             b'python\0-c\0' + release.PROCESS_ROLE_PROBE.encode() + b'\0'])
+        self.assertEqual(result, {'api': True, 'qcluster': False})
+
+    def test_actual_queue_process_is_detected_by_arguments(self):
+        self.assertEqual(self.probe([b'/usr/local/bin/python\0/usr/src/app/manage.py\0qcluster\0']),
+                         {'api': False, 'qcluster': True})
+
+    def test_non_boolean_or_incomplete_probe_result_is_rejected(self):
+        for payload in ({'api': True}, {'api': 'true', 'qcluster': False}):
+            with self.subTest(payload=payload), patch.object(release, 'run', return_value=json.dumps(payload)):
+                with self.assertRaisesRegex(RuntimeError, 'Invalid process-role'):
+                    release.process_roles('synthetic')
 
 
 if __name__ == '__main__':
