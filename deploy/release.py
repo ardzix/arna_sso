@@ -23,6 +23,21 @@ SOURCE = Path('/root/Project/arna_sso')
 BASE = Path('/root/arnatech-releases')
 DEVICE_EXEMPTION_CONFIG = 'sso-device-authorize-exemption-v1'
 DEVICE_EXEMPTION_TARGET = '/run/sso-device-authorize-exemption.json'
+PROCESS_ROLE_PROBE = '''from pathlib import Path
+import json
+commands = []
+for path in Path('/proc').glob('[0-9]*/cmdline'):
+    try:
+        commands.append(path.read_bytes().split(bytes([0])))
+    except OSError:
+        continue
+roles = {
+    'api': any(args and args[0].rsplit(b'/', 1)[-1] == b'uwsgi' for args in commands),
+    'qcluster': any(len(args) > 2 and args[0].rsplit(b'/', 1)[-1].startswith(b'python')
+                    and args[1].rsplit(b'/', 1)[-1] == b'manage.py' and args[2] == b'qcluster'
+                    for args in commands),
+}
+print(json.dumps(roles))'''
 
 
 def run(args, *, timeout=120, input=None, visible=False, env=None, diagnostic_path=None):
@@ -47,6 +62,14 @@ def write_private(path, data):
 
 def inspect_service():
     return json.loads(run(['docker', 'service', 'inspect', SERVICE]))[0]
+
+
+def process_roles(container):
+    roles = json.loads(run(['docker', 'exec', container, 'python', '-c', PROCESS_ROLE_PROBE]))
+    if (not isinstance(roles, dict) or set(roles) != {'api', 'qcluster'}
+            or any(type(value) is not bool for value in roles.values())):
+        raise RuntimeError('Invalid process-role probe response')
+    return roles
 
 
 def wait_task(service, seconds=180):
@@ -170,6 +193,19 @@ def roll(commit, folder):
     names = run(['docker', 'ps', '--filter', 'label=com.docker.swarm.service.name=' + SERVICE, '--format', '{{.Names}}']).splitlines()
     if len(names) != 2:
         raise RuntimeError('Expected two healthy baseline replicas')
+    baseline_roles = [process_roles(name) for name in names]
+    if not baseline_roles[0]['api'] or baseline_roles[0] != baseline_roles[1]:
+        raise RuntimeError('Baseline process roles are not healthy and consistent')
+    original_roles = record.get('baseline_process_roles')
+    if original_roles is not None and original_roles != baseline_roles[0]:
+        raise RuntimeError('Current roles differ from the original release baseline; recover before retrying')
+    if not baseline_roles[0]['qcluster'] and not any(
+            config.get('File', {}).get('Name') == '/etc/supervisor/conf.d/supervisord.conf'
+            for config in cs.get('Configs', [])):
+        raise RuntimeError('Web-only baseline needs a preserved Supervisor configuration before rollout')
+    if original_roles is None:
+        record['baseline_process_roles'] = baseline_roles[0]
+        write_private(folder / 'release.json', record)
     if cs.get('Secrets'):
         if environment.get('SSO_RUNTIME_SECRET_PATH') != '/run/secrets/sso_runtime':
             raise RuntimeError('Unknown runtime secret layout; review before proceeding')
@@ -259,8 +295,9 @@ def verify(commit, folder):
         c = json.loads(run(['docker', 'inspect', name]))[0]
         if c['State'].get('Health', {}).get('Status') != 'healthy':
             raise RuntimeError('Replica is not healthy')
-        probe = 'from pathlib import Path;args=[p.read_bytes().replace(b"\\0",b" ") for p in Path("/proc").glob("[0-9]*/cmdline") if p.exists()];assert any(a.startswith(b"uwsgi ") for a in args);assert any(b"manage.py qcluster" in a and a.startswith(b"python ") for a in args);print("API and queue roles running")'
-        run(['docker', 'exec', name, 'python', '-c', probe])
+        expected_roles = record.get('baseline_process_roles')
+        if not expected_roles or not expected_roles.get('api') or process_roles(name) != expected_roles:
+            raise RuntimeError('Replica process roles differ from the verified baseline')
     for path in ('/health/live', '/health/ready'):
         run(['curl', '-fsS', '--max-time', '12', 'https://sso.arnatech.id' + path])
     record['status'] = 'verified'
