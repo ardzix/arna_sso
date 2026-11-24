@@ -8,6 +8,7 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.utils import timezone
 from urllib.parse import urlparse
+from .redirect_policy import is_http_loopback_redirect
 
 class UserManager(BaseUserManager):
     def create_user(self, email, password=None, **extra_fields):
@@ -170,7 +171,7 @@ class SSOAllowedRedirectURI(models.Model):
     @staticmethod
     def _is_valid_redirect_uri(value: str) -> bool:
         parsed = urlparse(value)
-        if parsed.scheme != "https":
+        if parsed.scheme != "https" and not is_http_loopback_redirect(value):
             return False
         if not parsed.netloc:
             return False
@@ -186,8 +187,8 @@ class SSOAllowedRedirectURI(models.Model):
             raise ValidationError(
                 {
                     "redirect_uri": (
-                        "Invalid redirect URI. Use an exact HTTPS URL without "
-                        "wildcards or fragments, e.g. "
+                        "Invalid redirect URI. Use an exact HTTPS URL or an HTTP "
+                        "localhost/127.0.0.1 development callback, without wildcards or fragments, e.g. "
                         "'https://sales.example.com/auth/callback'."
                     )
                 }

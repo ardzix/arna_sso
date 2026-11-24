@@ -26,6 +26,7 @@ from authentication.models import SSOAllowedRedirectURI, SSOAuthorizationCode, U
 from authentication.serializers import MyTokenObtainPairSerializer
 from authentication.website_proof import WEBSITE_CLIENT_ID, website_customer_proof
 from authentication.crm_proof import CRM_CLIENT_ID, crm_dashboard_proof
+from authentication.redirect_policy import is_http_loopback_redirect
 
 PKCE_ALLOWED_CHARS = set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~")
 
@@ -60,6 +61,12 @@ class SSOTokenExchangeSerializer(serializers.Serializer):
 
 
 def _is_redirect_allowed(client_id, redirect_uri):
+    if urlsplit(redirect_uri).scheme == "http":
+        # Never let the legacy global URL fallback authorize another client or
+        # another port/path on a developer's machine, including when DEBUG is on.
+        return is_http_loopback_redirect(redirect_uri) and SSOAllowedRedirectURI.objects.filter(
+            client_id=client_id, redirect_uri=redirect_uri, is_active=True,
+        ).exists()
     if client_id == CRM_CLIENT_ID:
         parsed = urlsplit(redirect_uri)
         local = settings.DEBUG and parsed.scheme == "http" and parsed.hostname in {"127.0.0.1", "localhost"}
@@ -95,7 +102,7 @@ def _browser_params(values):
         raise serializers.ValidationError("Tautan masuk aplikasi tidak valid. Mulai kembali dari aplikasi.")
     data = serializer.validated_data
     callback = urlsplit(data["redirect_uri"])
-    local = settings.DEBUG and callback.scheme == "http" and callback.hostname in {"localhost", "127.0.0.1"}
+    local = is_http_loopback_redirect(data["redirect_uri"])
     if (callback.scheme != "https" and not local) or callback.username or callback.password or callback.fragment:
         raise serializers.ValidationError("Alamat kembali aplikasi tidak valid.")
     if not _is_redirect_allowed(data["client_id"], data["redirect_uri"]):
@@ -253,6 +260,8 @@ def _issue_authorization_code(user, data, browser_session_key=""):
         )
 
     redirect_uri = data["redirect_uri"]
+    if is_http_loopback_redirect(redirect_uri) and data["code_challenge_method"] != "S256":
+        return Response({"error": "HTTP loopback callbacks require S256 PKCE"}, status=400)
     if data["client_id"] == CRM_CLIENT_ID and data["code_challenge_method"] != "S256":
         return Response({"error": "CRM requires S256 PKCE"}, status=400)
     if data["client_id"] == WEBSITE_CLIENT_ID:
