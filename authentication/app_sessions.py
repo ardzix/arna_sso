@@ -10,6 +10,7 @@ from django.utils.crypto import constant_time_compare
 from django.utils.decorators import method_decorator
 from django.views.decorators.cache import never_cache
 from rest_framework.response import Response
+from iam.bnk_access import APP_CLIENT as BNK_IAM_APP_CLIENT
 from rest_framework.views import APIView
 from rest_framework.permissions import AllowAny
 from rest_framework.throttling import SimpleRateThrottle
@@ -109,6 +110,8 @@ class AppSessionResolveView(APIView):
         # on each resolution rather than copied from a browser-supplied profile.
         access = MyTokenObtainPairSerializer.access_for_user(app.user)
         access["iss"] = settings.DEVICE_TOKEN_ISSUER
+        if app.client_id == BNK_IAM_APP_CLIENT:
+            access["app_client_id"] = BNK_IAM_APP_CLIENT
         if app.client_id == "arnaos":
             access["aud"] = "arnaos"
         profile = {key: access.get(key) for key in (

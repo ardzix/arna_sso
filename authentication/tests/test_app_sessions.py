@@ -10,6 +10,7 @@ from rest_framework_simplejwt.tokens import AccessToken
 from authentication.models import SSOAllowedRedirectURI, SSOAppSession, SSOAuthorizationCode, User
 from authentication.serializers import MyTokenObtainPairSerializer
 from authentication.sso_views import SSO_BROWSER_COOKIE, _challenge_from_verifier
+from organization.models import Organization, OrganizationMember
 
 
 class AppSessionTests(TestCase):
@@ -55,6 +56,18 @@ class AppSessionTests(TestCase):
         self.assertEqual(self.resolve(raw, "arnaos").status_code, 401)
         with patch.object(MyTokenObtainPairSerializer, "get_token", side_effect=AssertionError("Refresh issuance is forbidden")):
             self.assertNotIn("refresh", self.resolve(raw).json())
+
+    def test_only_resolved_bnk_dashboard_session_can_exchange_bnk_iam_as_owner(self):
+        organization = Organization.objects.create(owner=self.user, name="Synthetic BNK", package_type="Basic")
+        OrganizationMember.objects.create(user=self.user, organization=organization)
+        dashboard = {**self.params, "client_id": "arnasite-dashboard",
+                     "redirect_uri": "https://www.bisnisnaikkelas.com/api/auth/callback"}
+        for params, expected in ((dashboard, 200), (self.params, 403)):
+            raw = self.create(self.code(params)).json()["session"]
+            access = self.resolve(raw, params["client_id"]).json()["access"]
+            exchange = self.backend.post("/api/v1/devices/resource-token/", {"audience": "arna-bnk-iam"},
+                                         content_type="application/json", HTTP_AUTHORIZATION="Bearer " + access)
+            self.assertEqual(exchange.status_code, expected, exchange.json())
 
     def test_wrong_verifier_callback_or_unbound_legacy_code_is_rejected(self):
         for key, value in (("code_verifier", "w"*64), ("redirect_uri", "https://evil.test/callback"), ("client_id", "arnaos")):
