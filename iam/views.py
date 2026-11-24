@@ -1,11 +1,14 @@
 from rest_framework import viewsets, serializers
+from django.db import transaction
 from django.db.models import Q
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from drf_yasg.utils import swagger_auto_schema
 from drf_yasg import openapi
 from .models import Role, Permission, UserRole, UserPermission
 from .serializers import RoleSerializer, PermissionSerializer, UserRoleSerializer, UserPermissionSerializer
 from .permissions import CanManageRoles, CanAssignRoles, CanAssignDirectPermissions
+from .bnk_access import FULL_ADMIN, PRODUCT_KEY as BNK_IAM_PRODUCT, full_admin_name, guard_legacy_role_write, lock_organization
 
 class RoleViewSet(viewsets.ModelViewSet):
     queryset = Role.objects.all()
@@ -49,6 +52,33 @@ class RoleViewSet(viewsets.ModelViewSet):
             Q(organization__members__user=user, organization__members__is_session_active=True)
         ).distinct()
 
+    @transaction.atomic
+    def perform_create(self, serializer):
+        from organization.models import OrganizationMember
+        memberships = OrganizationMember.objects.filter(user=self.request.user, is_session_active=True)
+        organization_id = memberships.values_list('organization_id', flat=True).first()
+        organization = lock_organization(organization_id) if organization_id else None
+        name = serializer.validated_data.get('name')
+        if full_admin_name(name) and not memberships.select_for_update().filter(organization_id=organization_id).first():
+            raise PermissionDenied('Your active organization has changed. Refresh and try again.')
+        guard_legacy_role_write(self.request.user, organization, new_name=name)
+        super().perform_create(serializer)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        role = serializer.instance
+        organization = lock_organization(role.organization_id) if role.organization_id else None
+        role.refresh_from_db(fields=['name'])
+        guard_legacy_role_write(self.request.user, organization, role, serializer.validated_data.get('name'))
+        super().perform_update(serializer)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        organization = lock_organization(instance.organization_id) if instance.organization_id else None
+        instance.refresh_from_db(fields=['name'])
+        guard_legacy_role_write(self.request.user, organization, instance)
+        super().perform_destroy(instance)
+
 
 class PermissionViewSet(viewsets.ModelViewSet):
     queryset = Permission.objects.all()
@@ -81,6 +111,24 @@ class PermissionViewSet(viewsets.ModelViewSet):
             Q(organization__owner=user) | 
             Q(organization__members__user=user, organization__members__is_session_active=True)
         ).distinct()
+
+    def guard_bnk_permission(self, permission):
+        organization = lock_organization(permission.organization_id)
+        if permission.roles.filter(product_management__product_key=BNK_IAM_PRODUCT).exists():
+            raise PermissionDenied('This permission is used by a BNK role.')
+        if (organization and organization.owner_id != self.request.user.pk
+                and permission.roles.filter(organization=organization, name=FULL_ADMIN).exists()):
+            raise PermissionDenied('Only the organization owner can manage Full Admin permissions.')
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        self.guard_bnk_permission(serializer.instance)
+        super().perform_update(serializer)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        self.guard_bnk_permission(instance)
+        super().perform_destroy(instance)
 
 
 class UserRoleViewSet(viewsets.ModelViewSet):
@@ -128,6 +176,28 @@ class UserRoleViewSet(viewsets.ModelViewSet):
     )
     def create(self, request, *args, **kwargs):
         return super().create(request, *args, **kwargs)
+
+    def guard_assignment_roles(self, roles):
+        organization_ids = sorted({role.organization_id for role in roles if role.organization_id})
+        organizations = {pk: lock_organization(pk) for pk in organization_ids}
+        for role in roles:
+            role.refresh_from_db(fields=['name'])
+            guard_legacy_role_write(self.request.user, organizations.get(role.organization_id), role)
+
+    @transaction.atomic
+    def perform_create(self, serializer):
+        self.guard_assignment_roles([serializer.validated_data['role']])
+        super().perform_create(serializer)
+
+    @transaction.atomic
+    def perform_update(self, serializer):
+        self.guard_assignment_roles([serializer.instance.role, serializer.validated_data.get('role', serializer.instance.role)])
+        super().perform_update(serializer)
+
+    @transaction.atomic
+    def perform_destroy(self, instance):
+        self.guard_assignment_roles([instance.role])
+        super().perform_destroy(instance)
 
 
 class UserPermissionViewSet(viewsets.ModelViewSet):

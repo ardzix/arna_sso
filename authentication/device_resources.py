@@ -15,6 +15,8 @@ from rest_framework_simplejwt.authentication import JWTAuthentication
 from rest_framework_simplejwt.tokens import AccessToken
 
 from audit_logging.models import AuditLog
+from iam.bnk_access import APP_CLIENT as BNK_IAM_APP_CLIENT, AUDIENCE as BNK_IAM_AUDIENCE
+from iam.bnk_access import PRODUCT_KEY as BNK_IAM_PRODUCT, active_bnk_admin, lock_organization
 from iam.models import Role, Permission, DeviceRole, DevicePermission
 from iam.effective import effective_access, RESOURCE_PERMISSIONS, HUMAN_RESOURCE_PERMISSIONS
 from .models import DeviceRegistration
@@ -68,7 +70,8 @@ class DeviceAccessView(DeviceAPIView):
         return Response({'device_id': str(device.pk), 'roles': roles, 'permissions': permissions,
                          'role_ids': list(device.role_assignments.values_list('role_id', flat=True)),
                          'permission_ids': list(direct.permissions.values_list('pk', flat=True)) if direct else [],
-                         'role_catalog': list(Role.objects.filter(organization=organization).values('id', 'name')),
+                         'role_catalog': list(Role.objects.filter(organization=organization)
+                                              .exclude(product_management__product_key=BNK_IAM_PRODUCT).values('id', 'name')),
                          'permission_catalog': list(Permission.objects.filter(organization=organization).values('id', 'name'))})
 
     @swagger_auto_schema(request_body=DeviceAccessSerializer)
@@ -76,7 +79,9 @@ class DeviceAccessView(DeviceAPIView):
     def put(self, request, device_id):
         data = _validated(DeviceAccessSerializer, request.data)
         device, organization = _device_for_context(request, device_id, lock=True)
-        roles = list(Role.objects.filter(pk__in=data['role_ids'], organization=organization).prefetch_related('permissions'))
+        lock_organization(organization.pk)
+        roles = list(Role.objects.filter(pk__in=data['role_ids'], organization=organization)
+                     .exclude(product_management__product_key=BNK_IAM_PRODUCT).prefetch_related('permissions'))
         permissions = list(Permission.objects.filter(pk__in=data['permission_ids'], organization=organization))
         if len(roles) != len(set(data['role_ids'])) or len(permissions) != len(set(data['permission_ids'])):
             from rest_framework.exceptions import ValidationError
@@ -185,6 +190,8 @@ class ResourceTokenView(DeviceAPIView):
     @swagger_auto_schema(request_body=ResourceTokenSerializer, operation_summary='Issue a resource token using current SSO IAM grants')
     def post(self, request):
         audience = _validated(ResourceTokenSerializer, request.data)['audience']
+        if audience == BNK_IAM_AUDIENCE:
+            return self.bnk_iam_token(request)
         resource_permissions = (RESOURCE_PERMISSIONS if isinstance(request.user, ResourceDevicePrincipal)
                                 else HUMAN_RESOURCE_PERMISSIONS).get(audience)
         if not resource_permissions:
@@ -228,3 +235,26 @@ class ResourceTokenView(DeviceAPIView):
             token, kind = str(access), 'Bearer'
         return Response({'access_token': token, 'token_type': kind,
                          'expires_in': expires_in, 'audience': audience})
+
+    def bnk_iam_token(self, request):
+        if isinstance(request.user, ResourceDevicePrincipal):
+            raise PermissionDenied('Only human users can manage BNK access.')
+        if (request.auth is None or request.auth.get('app_client_id') != BNK_IAM_APP_CLIENT
+                or request.auth.get('iss') != settings.DEVICE_TOKEN_ISSUER or request.auth.get('aud') is not None):
+            raise PermissionDenied('Resolve an active BNK dashboard session to manage BNK access.')
+        membership = active_bnk_admin(request.user)
+        organization_id = str(membership.organization_id)
+        if request.auth.get('org_id') != organization_id:
+            raise PermissionDenied('Your active organization has changed. Refresh and try again.')
+        access = AccessToken.for_user(request.user)
+        access.set_exp(lifetime=timedelta(minutes=settings.DEVICE_ACCESS_TOKEN_LIFETIME_MINUTES))
+        access['exp'] = min(access['exp'], request.auth['exp'])
+        access['iss'] = settings.DEVICE_TOKEN_ISSUER
+        access['aud'] = BNK_IAM_AUDIENCE
+        access['token_type'] = 'resource_access'
+        access['principal_type'] = 'user'
+        access['app_client_id'] = BNK_IAM_APP_CLIENT
+        access['org_id'] = organization_id
+        access['organization_id'] = organization_id
+        return Response({'access_token': str(access), 'token_type': 'Bearer',
+                         'expires_in': max(0, access['exp'] - int(time.time())), 'audience': BNK_IAM_AUDIENCE})
