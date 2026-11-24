@@ -202,7 +202,7 @@ class ResourceTokenView(DeviceAPIView):
             token = _device_access_token(device, audience=audience, subject_exp=subject_exp)
             kind = 'DPoP' if device.public_key_thumbprint else 'Bearer'
         else:
-            context = _human_storage_context(request, require_tenant=audience in {'arna-commerce', 'arna-operations'})
+            context = _human_storage_context(request, require_tenant=audience in {'arna-commerce', 'arna-operations', 'arna-levelup'})
             roles, permissions = effective_access(request.user, context.organization)
             owner = context.organization.owner_id == request.user.pk
             permissions = sorted(resource_permissions if owner else set(permissions) & resource_permissions)
@@ -214,6 +214,8 @@ class ResourceTokenView(DeviceAPIView):
                 access['exp'] = min(access['exp'], subject_exp)
             access['iss'] = settings.DEVICE_TOKEN_ISSUER
             access['aud'] = audience
+            if audience == 'arna-levelup':
+                access['token_type'] = 'resource_access'
             access['principal_type'] = 'user'
             access['email'] = request.user.email
             access['is_staff'] = bool(request.user.is_staff)

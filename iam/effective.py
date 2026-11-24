@@ -13,10 +13,12 @@ COMMERCE_CATALOG_PERMISSIONS = {
     'commerce.catalog.read', 'commerce.catalog.write', 'commerce.catalog.delete',
 }
 OPERATIONS_PERMISSIONS = {'operations.read', 'operations.write', 'operations.manage'}
+LEVELUP_PERMISSIONS = {'business_hub:read', 'business_hub:write'}
 HUMAN_RESOURCE_PERMISSIONS = {
     'storage': STORAGE_PERMISSIONS,
     'arna-commerce': COMMERCE_DEVICE_PERMISSIONS | COMMERCE_CATALOG_PERMISSIONS,
     'arna-operations': OPERATIONS_PERMISSIONS,
+    'arna-levelup': LEVELUP_PERMISSIONS,
 }
 
 

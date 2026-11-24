@@ -41,4 +41,5 @@ with tempfile.TemporaryDirectory(prefix="ols-gift-sso-test-") as folder:
                  "authentication.tests.test_device_iam",
                  "authentication.tests.test_device_commerce", "authentication.tests.test_human_commerce",
                  "authentication.tests.test_human_operations",
+                 "authentication.tests.test_human_levelup",
                  "iam.tests", "iam.test_permission_duplicates", verbosity=2)
