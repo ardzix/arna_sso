@@ -37,6 +37,7 @@ with tempfile.TemporaryDirectory(prefix="ols-gift-sso-test-") as folder:
                  "authentication.tests.test_sso_login_page",
                  "authentication.tests.test_sso_bridge", "authentication.tests.test_loopback_redirects",
                  "authentication.tests.test_app_sessions",
+                 "authentication.tests.test_crm_dashboard", "authentication.tests.test_crm_session",
                  "authentication.tests.test_device_authorization", "authentication.tests.test_device_throttles",
                  "authentication.tests.test_device_iam",
                  "authentication.tests.test_device_commerce", "authentication.tests.test_human_commerce",
