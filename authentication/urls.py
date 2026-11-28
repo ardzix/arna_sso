@@ -39,11 +39,13 @@ from .passkeys_api_views import (
     PasskeyDeleteView,
 )
 from .sso_views import SSOAuthorizeCodeView, SSOTokenExchangeView
+from .crm_session import CRMTokenView
 from .app_sessions import AppSessionCreateView, AppSessionResolveView, AppSessionRevokeView
 from .device_views import DeviceAuthorizeView, DeviceVerificationView, DeviceTokenView, DeviceRefreshView, DeviceRevokeView, DeviceReviewView, DeviceInventoryView, DeviceDetailView
 from .device_status import DeviceStatusView, DeviceIntrospectionView
 
 urlpatterns = [
+    path('sso/crm-token/', CRMTokenView.as_view(), name='sso_crm_token'),
     path('sso/app-session/', AppSessionCreateView.as_view(), name='sso_app_session'),
     path('sso/app-session/resolve/', AppSessionResolveView.as_view(), name='sso_app_session_resolve'),
     path('sso/app-session/revoke/', AppSessionRevokeView.as_view(), name='sso_app_session_revoke'),
